@@ -68,7 +68,11 @@ impl UltimateClient {
             .timeout(Duration::from_secs(30))
             .build()
             .unwrap_or_else(|_| reqwest::Client::new());
-        Self { base, password, http }
+        Self {
+            base,
+            password,
+            http,
+        }
     }
 
     fn with_password(&self, req: reqwest::RequestBuilder) -> reqwest::RequestBuilder {
@@ -80,7 +84,10 @@ impl UltimateClient {
 
     pub async fn write_mem(&self, address: u16, data: &[u8]) -> Result<(), NetError> {
         if address as usize + data.len() > 0x1_0000 {
-            return Err(NetError::WouldWrap { address, len: data.len() });
+            return Err(NetError::WouldWrap {
+                address,
+                len: data.len(),
+            });
         }
 
         let url = format!("{}/v1/machine:writemem", self.base);
@@ -103,7 +110,10 @@ impl UltimateClient {
 
     pub async fn read_mem(&self, address: u16, length: u32) -> Result<Vec<u8>, NetError> {
         if address as usize + length as usize > 0x1_0000 {
-            return Err(NetError::WouldWrap { address, len: length as usize });
+            return Err(NetError::WouldWrap {
+                address,
+                len: length as usize,
+            });
         }
 
         let url = format!("{}/v1/machine:readmem", self.base);
@@ -120,9 +130,14 @@ impl UltimateClient {
 
         let status = resp.status();
         if !status.is_success() {
-            return Err(NetError::Http { status: status.as_u16() });
+            return Err(NetError::Http {
+                status: status.as_u16(),
+            });
         }
-        let bytes = resp.bytes().await.map_err(|e| NetError::Transport(e.to_string()))?;
+        let bytes = resp
+            .bytes()
+            .await
+            .map_err(|e| NetError::Transport(e.to_string()))?;
         Ok(bytes.to_vec())
     }
 
@@ -135,7 +150,11 @@ impl UltimateClient {
             .map_err(|e| NetError::Transport(e.to_string()))?;
 
         let value = Self::parse_envelope(resp).await?;
-        Ok(value.get("version").and_then(|v| v.as_str()).unwrap_or_default().to_string())
+        Ok(value
+            .get("version")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default()
+            .to_string())
     }
 
     pub async fn info(&self) -> Result<DeviceInfo, NetError> {
@@ -176,7 +195,11 @@ impl UltimateClient {
                 })
             });
 
-        Ok(VerifyReport { address, written: data.len(), mismatch })
+        Ok(VerifyReport {
+            address,
+            written: data.len(),
+            mismatch,
+        })
     }
 
     /// The device answers HTTP 200 with a JSON `errors` array even on failure,
@@ -186,9 +209,14 @@ impl UltimateClient {
     async fn parse_envelope(resp: reqwest::Response) -> Result<serde_json::Value, NetError> {
         let status = resp.status();
         if !status.is_success() {
-            return Err(NetError::Http { status: status.as_u16() });
+            return Err(NetError::Http {
+                status: status.as_u16(),
+            });
         }
-        let text = resp.text().await.map_err(|e| NetError::Transport(e.to_string()))?;
+        let text = resp
+            .text()
+            .await
+            .map_err(|e| NetError::Transport(e.to_string()))?;
         if text.trim().is_empty() {
             return Ok(serde_json::Value::Null);
         }
@@ -199,7 +227,11 @@ impl UltimateClient {
         {
             let errors: Vec<String> = arr
                 .iter()
-                .map(|e| e.as_str().map(str::to_string).unwrap_or_else(|| e.to_string()))
+                .map(|e| {
+                    e.as_str()
+                        .map(str::to_string)
+                        .unwrap_or_else(|| e.to_string())
+                })
                 .collect();
             return Err(NetError::Api { errors });
         }
@@ -231,7 +263,10 @@ mod tests {
             .await;
 
         let client = UltimateClient::new(&server.uri(), None);
-        client.write_mem(0xC000, &[0xA9, 0x08]).await.expect("should succeed");
+        client
+            .write_mem(0xC000, &[0xA9, 0x08])
+            .await
+            .expect("should succeed");
     }
 
     #[tokio::test]
@@ -245,7 +280,10 @@ mod tests {
             .await;
 
         let client = UltimateClient::new(&server.uri(), None);
-        client.write_mem(0x0400, &[0x08]).await.expect("should succeed");
+        client
+            .write_mem(0x0400, &[0x08])
+            .await
+            .expect("should succeed");
     }
 
     #[tokio::test]
@@ -260,9 +298,14 @@ mod tests {
             .await;
 
         let client = UltimateClient::new(&server.uri(), None);
-        let err = client.write_mem(0xC000, &[0x00]).await.expect_err("must not treat 200 as success");
+        let err = client
+            .write_mem(0xC000, &[0x00])
+            .await
+            .expect_err("must not treat 200 as success");
         match err {
-            NetError::Api { errors } => assert_eq!(errors, vec!["address out of range".to_string()]),
+            NetError::Api { errors } => {
+                assert_eq!(errors, vec!["address out of range".to_string()])
+            }
             other => panic!("expected Api error, got {other:?}"),
         }
     }
@@ -278,7 +321,10 @@ mod tests {
             .await;
 
         let client = UltimateClient::new(&server.uri(), Some("hunter2".into()));
-        client.write_mem(0xC000, &[0x00]).await.expect("should succeed");
+        client
+            .write_mem(0xC000, &[0x00])
+            .await
+            .expect("should succeed");
     }
 
     #[tokio::test]
@@ -290,7 +336,10 @@ mod tests {
             .await;
 
         let client = UltimateClient::new(&server.uri(), None);
-        let err = client.write_mem(0xC000, &[0x00]).await.expect_err("403 is an error");
+        let err = client
+            .write_mem(0xC000, &[0x00])
+            .await
+            .expect_err("403 is an error");
         assert!(matches!(err, NetError::Http { status: 403 }), "got {err:?}");
     }
 
@@ -298,7 +347,10 @@ mod tests {
     async fn unreachable_host_maps_to_transport_error() {
         // Port 1 on localhost: nothing listens there.
         let client = UltimateClient::new("http://127.0.0.1:1", None);
-        let err = client.write_mem(0xC000, &[0x00]).await.expect_err("should fail");
+        let err = client
+            .write_mem(0xC000, &[0x00])
+            .await
+            .expect_err("should fail");
         assert!(matches!(err, NetError::Transport(_)), "got {err:?}");
     }
 
@@ -329,7 +381,10 @@ mod tests {
             .await;
 
         let client = UltimateClient::new(&server.uri(), None);
-        let err = client.write_mem(0xFFFE, &[1, 2, 3, 4]).await.expect_err("should reject locally");
+        let err = client
+            .write_mem(0xFFFE, &[1, 2, 3, 4])
+            .await
+            .expect_err("should reject locally");
         assert!(matches!(err, NetError::WouldWrap { .. }), "got {err:?}");
     }
 
@@ -348,7 +403,10 @@ mod tests {
             .await;
 
         let client = UltimateClient::new(&server.uri(), None);
-        let report = client.write_and_verify(0xC000, &[0xA9, 0x08]).await.expect("should succeed");
+        let report = client
+            .write_and_verify(0xC000, &[0xA9, 0x08])
+            .await
+            .expect("should succeed");
         assert_eq!(report.written, 2);
         assert_eq!(report.address, 0xC000);
         assert!(report.mismatch.is_none());
@@ -367,7 +425,10 @@ mod tests {
             .await;
 
         let client = UltimateClient::new(&server.uri(), None);
-        let report = client.write_and_verify(0xC000, &[0xA9, 0x08]).await.expect("call succeeds");
+        let report = client
+            .write_and_verify(0xC000, &[0xA9, 0x08])
+            .await
+            .expect("call succeeds");
         let m = report.mismatch.expect("should report a mismatch");
         assert_eq!((m.offset, m.expected, m.actual), (1, 0x08, 0xFF));
     }
@@ -423,7 +484,10 @@ mod tests {
             .await;
 
         let client = UltimateClient::new(&server.uri(), None);
-        let err = client.version().await.expect_err("must not treat 200 as success");
+        let err = client
+            .version()
+            .await
+            .expect_err("must not treat 200 as success");
         match err {
             NetError::Api { errors } => assert_eq!(errors, vec!["not ready".to_string()]),
             other => panic!("expected Api error, got {other:?}"),
@@ -446,7 +510,10 @@ mod tests {
             .await;
 
         let client = UltimateClient::new(&server.uri(), None);
-        let err = client.info().await.expect_err("must not treat 200 as success");
+        let err = client
+            .info()
+            .await
+            .expect_err("must not treat 200 as success");
         match err {
             NetError::Api { errors } => assert_eq!(errors, vec!["bad password".to_string()]),
             other => panic!("expected Api error, got {other:?}"),
@@ -466,7 +533,10 @@ mod tests {
             .await;
 
         let client = UltimateClient::new(&server.uri(), None);
-        let err = client.write_mem(0xC000, &[0x00]).await.expect_err("must not treat 200 as success");
+        let err = client
+            .write_mem(0xC000, &[0x00])
+            .await
+            .expect_err("must not treat 200 as success");
         match err {
             NetError::Api { errors } => assert_eq!(errors, vec!["5".to_string()]),
             other => panic!("expected Api error, got {other:?}"),

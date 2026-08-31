@@ -146,7 +146,28 @@ C010  01 8D 00 D8 8D 01 D8 A9 0D 20 D2 FF 60 00 00 00  |......... ..`...|
 | Labels | `loop:` or `loop`, **case-sensitive** — `loop` and `LOOP` are different symbols |
 | Directives | `.byte $01,$02` and `.word $1234` |
 | Comments | `;` to end of line |
-| Width override | `LDA.b $10` forces zero page, `LDA.w $10` forces absolute |
+| Width override | `.b` forces zero-page addressing, `.w` forces absolute — see below |
+
+### `.b` and `.w` force an address width
+
+`.b` selects zero page, zero page,X or zero page,Y. `.w` selects absolute,
+absolute,X, absolute,Y or indirect. A suffix either selects a mode of that class
+or the assembly fails — it is never silently ignored:
+
+```asm
+LDA.b $10       ; A5 10
+LDA.w $10       ; AD 10 00      absolute, one cycle slower, one byte longer
+JMP.w ($10)     ; 6C 10 00      indirect carries a 16-bit address
+JMP.b $10       ; error — JMP has no zero-page form
+STX.w $10,Y     ; error — STX has zero page,Y but no absolute,Y
+LDA.b #$10      ; error — an immediate operand carries no address
+RTS.w           ; error — an implied instruction carries no address
+BNE.b target    ; error — a branch is relative, neither zero page nor absolute
+```
+
+The suffix names an *address width*, not the number of operand bytes. Immediate,
+implied, accumulator, relative, `(indirect,X)` and `(indirect),Y` carry no
+address, so neither suffix applies to them.
 
 ### Operand widths are resolved, not guessed
 

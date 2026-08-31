@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 
 use crate::asm::error::AsmError;
-use crate::asm::opcodes::{opcode, AddrMode, Mnemonic};
+use crate::asm::opcodes::{AddrMode, Mnemonic, opcode};
 use crate::asm::parser::{Expr, Line, Operand, Stmt, Width};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -51,9 +51,33 @@ fn operand_expr(operand: &Operand) -> Option<&Expr> {
 }
 
 /// The modes a given mnemonic actually supports, filtered from the candidates.
+/// Human name for an operand form, for error messages.
+fn operand_form(operand: &Operand) -> &'static str {
+    match operand {
+        Operand::None => "no operand",
+        Operand::Accumulator => "an accumulator operand",
+        Operand::Immediate(_) => "an immediate operand",
+        Operand::Direct(_) => "a direct operand",
+        Operand::DirectX(_) => "an ,X-indexed operand",
+        Operand::DirectY(_) => "a ,Y-indexed operand",
+        Operand::IndexedIndirect(_) => "an (indirect,X) operand",
+        Operand::IndirectIndexed(_) => "an (indirect),Y operand",
+        Operand::Indirect(_) => "an indirect operand",
+    }
+}
+
 fn legal_modes(m: Mnemonic, operand: &Operand) -> Vec<AddrMode> {
     if m.is_branch() {
-        return vec![AddrMode::Relative];
+        // A branch takes exactly one operand form: a direct target, encoded
+        // relative. Every other form is an error — including no operand at
+        // all, which previously reserved two bytes during layout and emitted
+        // only the one-byte opcode. That left the emitted program one byte
+        // short of what every later label's address assumed: the bytes and
+        // the symbol table disagreed, silently.
+        return match operand {
+            Operand::Direct(_) => vec![AddrMode::Relative],
+            _ => Vec::new(),
+        };
     }
     candidates(operand)
         .iter()
@@ -70,31 +94,39 @@ pub fn encode(lines: &[Line], org: u16) -> Result<Assembly, Vec<AsmError>> {
     // Initial choice: narrowest legal mode, honouring an explicit width suffix.
     for line in lines {
         let mode = match &line.stmt {
-            Stmt::Instruction { mnemonic, width, operand } => {
+            Stmt::Instruction {
+                mnemonic,
+                width,
+                operand,
+            } => {
                 let legal = legal_modes(*mnemonic, operand);
                 if legal.is_empty() {
                     errors.push(AsmError::new(
                         line.number,
-                        format!("{} does not support this operand form", name_of(*mnemonic)),
+                        format!(
+                            "{} does not accept {}",
+                            name_of(*mnemonic),
+                            operand_form(operand)
+                        ),
                     ));
                     None
                 } else {
-                    let initial = pick_initial(&legal, *width);
-                    // `.w` must force absolute or fail. When the widest legal mode
-                    // still takes a one-byte operand there is no absolute form to
-                    // widen to, and silently emitting the narrow encoding would
-                    // defeat the suffix's purpose: deliberate control over
-                    // instruction length and cycle timing.
-                    if *width == Width::Word && initial.operand_len() == 1 {
-                        errors.push(AsmError::new(
-                            line.number,
-                            format!(
-                                "{} has no wider form for this operand, so .w cannot be honoured",
-                                name_of(*mnemonic)
-                            ),
-                        ));
+                    match pick_initial(&legal, *width) {
+                        Ok(initial) => Some(initial),
+                        Err(class) => {
+                            errors.push(AsmError::new(
+                                line.number,
+                                format!(
+                                    "{} with {} has no {} form, so {} cannot be honoured",
+                                    name_of(*mnemonic),
+                                    operand_form(operand),
+                                    class.description(),
+                                    class.suffix()
+                                ),
+                            ));
+                            None
+                        }
                     }
-                    Some(initial)
                 }
             }
             _ => None,
@@ -116,7 +148,14 @@ pub fn encode(lines: &[Line], org: u16) -> Result<Assembly, Vec<AsmError>> {
 
         let mut widened = false;
         for (i, line) in lines.iter().enumerate() {
-            let Stmt::Instruction { mnemonic, width, operand } = &line.stmt else { continue };
+            let Stmt::Instruction {
+                mnemonic,
+                width,
+                operand,
+            } = &line.stmt
+            else {
+                continue;
+            };
             if *width != Width::Auto {
                 continue; // explicit override never widens
             }
@@ -124,8 +163,12 @@ pub fn encode(lines: &[Line], org: u16) -> Result<Assembly, Vec<AsmError>> {
             if legal.len() < 2 {
                 continue; // unambiguous
             }
-            let Some(expr) = operand_expr(operand) else { continue };
-            let Some(value) = resolve(expr, &symbols) else { continue };
+            let Some(expr) = operand_expr(operand) else {
+                continue;
+            };
+            let Some(value) = resolve(expr, &symbols) else {
+                continue;
+            };
             let current = chosen[i].expect("instruction has a mode");
             if value > 0xFF && current.operand_len() == 1 && !mnemonic.is_branch() {
                 chosen[i] = Some(legal[legal.len() - 1]);
@@ -141,11 +184,57 @@ pub fn encode(lines: &[Line], org: u16) -> Result<Assembly, Vec<AsmError>> {
     emit(lines, &chosen, org, &symbols)
 }
 
-fn pick_initial(legal: &[AddrMode], width: Width) -> AddrMode {
-    match width {
-        Width::Auto | Width::Byte => legal[0],
-        Width::Word => legal[legal.len() - 1],
+/// The class of addressing a width suffix selects.
+///
+/// `.b` and `.w` name an *address width*, not merely an operand byte count.
+/// Immediate, implied, accumulator, relative, and both indirect-indexed forms
+/// carry no address, so neither suffix applies to them — previously both were
+/// silently ignored there, and `LDA.b #$10`, `BNE.w target` and `RTS.w` all
+/// assembled as though the suffix had not been written.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum WidthClass {
+    Byte,
+    Word,
+}
+
+impl WidthClass {
+    fn description(self) -> &'static str {
+        match self {
+            WidthClass::Byte => "zero page",
+            WidthClass::Word => "absolute",
+        }
     }
+
+    fn suffix(self) -> &'static str {
+        match self {
+            WidthClass::Byte => ".b",
+            WidthClass::Word => ".w",
+        }
+    }
+
+    fn accepts(self, mode: AddrMode) -> bool {
+        use AddrMode::*;
+        match self {
+            WidthClass::Byte => matches!(mode, ZeroPage | ZeroPageX | ZeroPageY),
+            WidthClass::Word => matches!(mode, Absolute | AbsoluteX | AbsoluteY | Indirect),
+        }
+    }
+}
+
+/// Picks the starting mode. Without a suffix this is the narrowest legal mode,
+/// which the fixpoint loop may later widen. With a suffix it must be a mode of
+/// the requested class, or the suffix cannot be honoured and assembly fails.
+fn pick_initial(legal: &[AddrMode], width: Width) -> Result<AddrMode, WidthClass> {
+    let class = match width {
+        Width::Auto => return Ok(legal[0]),
+        Width::Byte => WidthClass::Byte,
+        Width::Word => WidthClass::Word,
+    };
+    legal
+        .iter()
+        .copied()
+        .find(|m| class.accepts(*m))
+        .ok_or(class)
 }
 
 fn stmt_len(line: &Line, mode: Option<AddrMode>) -> usize {
@@ -168,8 +257,23 @@ fn layout(
 
     for (i, line) in lines.iter().enumerate() {
         if let Some(label) = &line.label {
-            if symbols.insert(label.clone(), pc as u16).is_some() {
-                errors.push(AsmError::new(line.number, format!("duplicate label '{label}'")));
+            // Check before narrowing to u16. A label placed after a program
+            // that ends exactly at $FFFF sits at $10000, and `pc as u16`
+            // silently recorded it as $0000 — a symbol pointing at the
+            // opposite end of memory from where it was written. Note the
+            // thresholds differ on purpose: a program may *end* at $10000
+            // (its last byte at $FFFF), but a label must name an address that
+            // exists.
+            if pc > 0xFFFF {
+                errors.push(AsmError::new(
+                    line.number,
+                    format!("label '{label}' would be at ${pc:04X}, past $FFFF"),
+                ));
+            } else if symbols.insert(label.clone(), pc as u16).is_some() {
+                errors.push(AsmError::new(
+                    line.number,
+                    format!("duplicate label '{label}'"),
+                ));
             }
         }
         pc += stmt_len(line, chosen[i]);
@@ -179,7 +283,11 @@ fn layout(
         }
     }
 
-    if errors.is_empty() { Ok(symbols) } else { Err(errors) }
+    if errors.is_empty() {
+        Ok(symbols)
+    } else {
+        Err(errors)
+    }
 }
 
 fn resolve(expr: &Expr, symbols: &BTreeMap<String, u16>) -> Option<u16> {
@@ -231,14 +339,21 @@ fn emit(
                 }
             }
 
-            Stmt::Instruction { mnemonic, width, operand } => {
+            Stmt::Instruction {
+                mnemonic,
+                width,
+                operand,
+            } => {
                 let mode = chosen[i].expect("instruction has a mode");
                 let op = match opcode(*mnemonic, mode) {
                     Some(op) => op,
                     None => {
                         errors.push(AsmError::new(
                             line.number,
-                            format!("{} does not support this addressing mode", name_of(*mnemonic)),
+                            format!(
+                                "{} does not support this addressing mode",
+                                name_of(*mnemonic)
+                            ),
                         ));
                         continue;
                     }
@@ -252,8 +367,19 @@ fn emit(
                     };
 
                     if mode == AddrMode::Relative {
-                        let next = address as i32 + 2;
-                        let disp = value as i32 - next;
+                        // The 6510 adds the signed displacement to the 16-bit
+                        // address of the *next* instruction and wraps at 16
+                        // bits, so a branch across $FFFF/$0000 is legal
+                        // hardware. Subtracting as i32 modelled a flat address
+                        // space and rejected those, reporting nonsense like
+                        // "-65536 bytes".
+                        //
+                        // Reinterpreting the wrapping u16 difference as i16 is
+                        // not a narrowing cast — both are 16 bits — so the
+                        // -128..=127 check below remains a real bound and a
+                        // distant target cannot masquerade as reachable.
+                        let next = (address as u16).wrapping_add(2);
+                        let disp = value.wrapping_sub(next) as i16;
                         if !(-128..=127).contains(&disp) {
                             errors.push(AsmError::new(
                                 line.number,
@@ -309,7 +435,12 @@ fn emit(
     }
 
     if errors.is_empty() {
-        Ok(Assembly { org, bytes, lines: listing, symbols: symbols.clone() })
+        Ok(Assembly {
+            org,
+            bytes,
+            lines: listing,
+            symbols: symbols.clone(),
+        })
     } else {
         Err(errors)
     }
@@ -353,18 +484,18 @@ mod tests {
 
     #[test]
     fn emits_each_addressing_mode() {
-        assert_eq!(bytes("RTS", 0xC000),          vec![0x60]);
-        assert_eq!(bytes("ASL A", 0xC000),        vec![0x0A]);
-        assert_eq!(bytes("LDA #$08", 0xC000),     vec![0xA9, 0x08]);
-        assert_eq!(bytes("LDA $10", 0xC000),      vec![0xA5, 0x10]);
-        assert_eq!(bytes("LDA $10,X", 0xC000),    vec![0xB5, 0x10]);
-        assert_eq!(bytes("LDX $10,Y", 0xC000),    vec![0xB6, 0x10]);
-        assert_eq!(bytes("LDA $1234", 0xC000),    vec![0xAD, 0x34, 0x12]);
-        assert_eq!(bytes("LDA $1234,X", 0xC000),  vec![0xBD, 0x34, 0x12]);
-        assert_eq!(bytes("LDA $1234,Y", 0xC000),  vec![0xB9, 0x34, 0x12]);
-        assert_eq!(bytes("LDA ($10,X)", 0xC000),  vec![0xA1, 0x10]);
-        assert_eq!(bytes("LDA ($10),Y", 0xC000),  vec![0xB1, 0x10]);
-        assert_eq!(bytes("JMP ($1234)", 0xC000),  vec![0x6C, 0x34, 0x12]);
+        assert_eq!(bytes("RTS", 0xC000), vec![0x60]);
+        assert_eq!(bytes("ASL A", 0xC000), vec![0x0A]);
+        assert_eq!(bytes("LDA #$08", 0xC000), vec![0xA9, 0x08]);
+        assert_eq!(bytes("LDA $10", 0xC000), vec![0xA5, 0x10]);
+        assert_eq!(bytes("LDA $10,X", 0xC000), vec![0xB5, 0x10]);
+        assert_eq!(bytes("LDX $10,Y", 0xC000), vec![0xB6, 0x10]);
+        assert_eq!(bytes("LDA $1234", 0xC000), vec![0xAD, 0x34, 0x12]);
+        assert_eq!(bytes("LDA $1234,X", 0xC000), vec![0xBD, 0x34, 0x12]);
+        assert_eq!(bytes("LDA $1234,Y", 0xC000), vec![0xB9, 0x34, 0x12]);
+        assert_eq!(bytes("LDA ($10,X)", 0xC000), vec![0xA1, 0x10]);
+        assert_eq!(bytes("LDA ($10),Y", 0xC000), vec![0xB1, 0x10]);
+        assert_eq!(bytes("JMP ($1234)", 0xC000), vec![0x6C, 0x34, 0x12]);
     }
 
     #[test]
@@ -382,7 +513,10 @@ mod tests {
     #[test]
     fn resolves_forward_label_reference() {
         // JMP is 3 bytes, so `done` is at $C003.
-        assert_eq!(bytes("JMP done\ndone: RTS", 0xC000), vec![0x4C, 0x03, 0xC0, 0x60]);
+        assert_eq!(
+            bytes("JMP done\ndone: RTS", 0xC000),
+            vec![0x4C, 0x03, 0xC0, 0x60]
+        );
     }
 
     // ---- the sizing loop ----
@@ -443,7 +577,10 @@ x: .byte $02";
     #[test]
     fn jmp_never_uses_zero_page() {
         // JMP has no zero-page form, so a low target still assembles absolute.
-        assert_eq!(bytes("JMP target\ntarget: RTS", 0x0010), vec![0x4C, 0x13, 0x00, 0x60]);
+        assert_eq!(
+            bytes("JMP target\ntarget: RTS", 0x0010),
+            vec![0x4C, 0x13, 0x00, 0x60]
+        );
     }
 
     #[test]
@@ -451,7 +588,11 @@ x: .byte $02";
         // STX supports zero page,Y but not absolute,Y.
         assert_eq!(bytes("STX $10,Y", 0xC000), vec![0x96, 0x10]);
         let errs = errors("STX $1234,Y", 0xC000);
-        assert!(errs[0].message.to_lowercase().contains("stx"), "message was: {}", errs[0].message);
+        assert!(
+            errs[0].message.to_lowercase().contains("stx"),
+            "message was: {}",
+            errs[0].message
+        );
     }
 
     // ---- width overrides ----
@@ -463,14 +604,72 @@ x: .byte $02";
     }
 
     #[test]
+    fn width_suffixes_select_an_address_width_or_fail() {
+        // Every mandatory case from the hardening spec's section 1.3. `.b` and
+        // `.w` name an address width, not an operand byte count, so they apply
+        // only to zero-page and absolute modes respectively. Previously the
+        // suffix was silently ignored wherever it did not fit, which is the
+        // worst outcome for a feature whose entire purpose is deliberate
+        // control over instruction length and cycle timing.
+        assert_eq!(bytes("LDA.b $10", 0xC000), vec![0xA5, 0x10]);
+        assert_eq!(bytes("LDA.w $10", 0xC000), vec![0xAD, 0x10, 0x00]);
+        assert_eq!(bytes("JMP.w $10", 0xC000), vec![0x4C, 0x10, 0x00]);
+        // Indirect carries a 16-bit address, so `.w` applies to it.
+        assert_eq!(bytes("JMP.w ($10)", 0xC000), vec![0x6C, 0x10, 0x00]);
+        assert_eq!(bytes("STX.b $10,Y", 0xC000), vec![0x96, 0x10]);
+
+        for (src, want) in [
+            // The mnemonic simply lacks that form.
+            ("LDA.b $1234", "zero page"),
+            ("JMP.b $10", "no zero page form"),
+            ("STX.w $10,Y", "no absolute form"),
+            // The operand form carries no address at all, so neither suffix
+            // can apply. All four of these used to assemble silently.
+            ("LDA.b #$10", "no zero page form"),
+            ("BNE.b t", "no zero page form"),
+            ("BNE.w t", "no absolute form"),
+            ("RTS.b", "no zero page form"),
+            ("RTS.w", "no absolute form"),
+        ] {
+            let errs = errors(src, 0xC000);
+            assert_eq!(errs[0].line, 1, "{src}");
+            assert!(
+                errs[0].message.contains(want),
+                "{src} gave: {}",
+                errs[0].message
+            );
+        }
+    }
+
+    #[test]
+    fn automatic_width_selection_is_unaffected_by_the_strict_suffix_rules() {
+        // The no-suffix path must still start narrow and let the fixpoint
+        // widen, including the cascade.
+        assert_eq!(bytes("LDA $10", 0xC000), vec![0xA5, 0x10]);
+        assert_eq!(bytes("LDA $1234", 0xC000), vec![0xAD, 0x34, 0x12]);
+        assert_eq!(
+            bytes("LDA x\nLDA y\ny: .byte $01\nx: .byte $02", 0x00FB),
+            vec![0xAD, 0x02, 0x01, 0xAD, 0x01, 0x01, 0x01, 0x02]
+        );
+    }
+
+    #[test]
     fn word_suffix_errors_when_no_wider_form_exists() {
         // STX has zero page,Y but no absolute,Y. `.w` must force absolute or fail —
         // silently emitting the 2-byte zero page form would defeat the whole point
         // of the suffix, which is deliberate control over length and cycle timing.
         let errs = errors("STX.w $10,Y", 0xC000);
         assert_eq!(errs[0].line, 1);
-        assert!(errs[0].message.contains("STX"), "message was: {}", errs[0].message);
-        assert!(errs[0].message.contains(".w"), "message was: {}", errs[0].message);
+        assert!(
+            errs[0].message.contains("STX"),
+            "message was: {}",
+            errs[0].message
+        );
+        assert!(
+            errs[0].message.contains(".w"),
+            "message was: {}",
+            errs[0].message
+        );
 
         // ...but the fix must not over-reach: `.w` on a mnemonic that does have an
         // absolute form still widens as before.
@@ -481,11 +680,83 @@ x: .byte $02";
     fn byte_suffix_on_oversized_value_is_an_error_not_a_truncation() {
         let errs = errors("LDA.b $1234", 0xC000);
         assert_eq!(errs[0].line, 1);
-        assert!(errs[0].message.contains("$1234") || errs[0].message.contains("zero page"),
-                "message was: {}", errs[0].message);
+        assert!(
+            errs[0].message.contains("$1234") || errs[0].message.contains("zero page"),
+            "message was: {}",
+            errs[0].message
+        );
     }
 
     // ---- branches ----
+
+    #[test]
+    fn branches_accept_only_a_direct_target() {
+        // Every one of these previously reached the relative-encoding path and
+        // was rejected — if at all — by the displacement range check, which
+        // produced nonsense like "branch to '$0010' is -49138 bytes".
+        for src in [
+            "BNE #$10",
+            "BNE ($10)",
+            "BNE ($10,X)",
+            "BNE ($10),Y",
+            "BNE $10,X",
+            "BNE $10,Y",
+        ] {
+            let errs = errors(src, 0xC000);
+            assert_eq!(errs[0].line, 1, "{src}");
+            assert!(
+                errs[0].message.contains("BNE does not accept"),
+                "{src} gave: {}",
+                errs[0].message
+            );
+        }
+        // The one legal form still works.
+        assert_eq!(bytes("BNE t\nt: RTS", 0xC000), vec![0xD0, 0x00, 0x60]);
+    }
+
+    #[test]
+    fn a_branch_without_an_operand_cannot_corrupt_later_labels() {
+        // This is the defect that mattered: layout reserved two bytes for the
+        // branch and emission wrote one, so the emitted program was a byte
+        // shorter than every later label's address assumed. `BNE\nend: RTS`
+        // assembled to D0 60 with `end` recorded at $C002 while the 60 sat at
+        // $C001 — wrong bytes and a lying symbol table, silently.
+        let errs = errors("BNE\nend: RTS", 0xC000);
+        assert_eq!(errs[0].line, 1);
+        assert!(
+            errs[0].message.contains("does not accept no operand"),
+            "message was: {}",
+            errs[0].message
+        );
+    }
+
+    #[test]
+    fn branches_wrap_at_the_16_bit_address_boundary() {
+        // The 6510 adds the displacement to the 16-bit address of the next
+        // instruction and wraps, so both of these are legal hardware. The old
+        // i32 subtraction modelled a flat address space and rejected them.
+        assert_eq!(bytes("BNE $0000", 0xFFFE), vec![0xD0, 0x00]);
+        assert_eq!(bytes("BNE $FFFF", 0x0000), vec![0xD0, 0xFD]);
+    }
+
+    #[test]
+    fn wrapping_does_not_make_distant_targets_reachable() {
+        // The u16->i16 reinterpretation must not turn an unreachable target
+        // into a valid short branch.
+        let errs = errors("BNE $C200", 0xC000);
+        assert_eq!(errs[0].line, 1);
+        assert!(
+            errs[0].message.contains("limit is -128 to +127"),
+            "message was: {}",
+            errs[0].message
+        );
+        // And the reported distance must be sane, not the old "-65536".
+        assert!(
+            !errs[0].message.contains("65536"),
+            "message was: {}",
+            errs[0].message
+        );
+    }
 
     #[test]
     fn branch_offsets_forward_and_backward() {
@@ -499,7 +770,9 @@ x: .byte $02";
     fn branch_range_boundaries_are_accepted() {
         // +127: 127 bytes of NOP between the branch and the target.
         let mut src = String::from("BNE far\n");
-        for _ in 0..127 { src.push_str("NOP\n"); }
+        for _ in 0..127 {
+            src.push_str("NOP\n");
+        }
         src.push_str("far: RTS");
         let out = bytes(&src, 0xC000);
         assert_eq!(out[0], 0xD0);
@@ -507,7 +780,9 @@ x: .byte $02";
 
         // -128
         let mut src = String::from("back: NOP\n");
-        for _ in 0..125 { src.push_str("NOP\n"); }
+        for _ in 0..125 {
+            src.push_str("NOP\n");
+        }
         src.push_str("BNE back");
         let out = bytes(&src, 0xC000);
         assert_eq!(*out.last().unwrap(), 0x80); // -128
@@ -516,13 +791,18 @@ x: .byte $02";
     #[test]
     fn branch_out_of_range_reports_displacement_and_limit() {
         let mut src = String::from("BNE far\n");
-        for _ in 0..200 { src.push_str("NOP\n"); }
+        for _ in 0..200 {
+            src.push_str("NOP\n");
+        }
         src.push_str("far: RTS");
         let errs = errors(&src, 0xC000);
         assert_eq!(errs[0].line, 1);
         let m = &errs[0].message;
         assert!(m.contains("far"), "message was: {m}");
-        assert!(m.contains("127") || m.contains("128"), "message should state the limit: {m}");
+        assert!(
+            m.contains("127") || m.contains("128"),
+            "message should state the limit: {m}"
+        );
     }
 
     #[test]
@@ -546,7 +826,10 @@ data: .byte $AA";
     fn emits_byte_and_word_directives() {
         assert_eq!(bytes(".byte $01,$02,$03", 0xC000), vec![0x01, 0x02, 0x03]);
         assert_eq!(bytes(".word $1234", 0xC000), vec![0x34, 0x12]);
-        assert_eq!(bytes("target: .byte $AA\n.word target", 0xC000), vec![0xAA, 0x00, 0xC0]);
+        assert_eq!(
+            bytes("target: .byte $AA\n.word target", 0xC000),
+            vec![0xAA, 0x00, 0xC0]
+        );
     }
 
     #[test]
@@ -561,14 +844,46 @@ data: .byte $AA";
     fn reports_undefined_symbol() {
         let errs = errors("JMP nowhere", 0xC000);
         assert_eq!(errs[0].line, 1);
-        assert!(errs[0].message.contains("nowhere"), "message was: {}", errs[0].message);
+        assert!(
+            errs[0].message.contains("nowhere"),
+            "message was: {}",
+            errs[0].message
+        );
+    }
+
+    #[test]
+    fn a_label_past_ffff_is_rejected_not_wrapped() {
+        // `RTS` at $FFFF ends the program exactly at $10000, putting the
+        // following label at an address that does not exist. `pc as u16`
+        // silently recorded it as $0000 — a symbol pointing at the opposite
+        // end of memory from where it was written.
+        let errs = errors("RTS\nend:", 0xFFFF);
+        assert_eq!(errs[0].line, 2);
+        assert!(
+            errs[0].message.contains("past $FFFF"),
+            "message was: {}",
+            errs[0].message
+        );
+    }
+
+    #[test]
+    fn a_program_may_still_end_exactly_at_ffff() {
+        // The thresholds differ on purpose: a program's last byte may sit at
+        // $FFFF (pc ends at $10000), but a label must name a real address.
+        assert_eq!(bytes("RTS", 0xFFFF), vec![0x60]);
+        assert_eq!(bytes("last: RTS", 0xFFFF), vec![0x60]);
+        assert_eq!(asm("last: RTS", 0xFFFF).symbols["last"], 0xFFFF);
     }
 
     #[test]
     fn reports_duplicate_label() {
         let errs = errors("dup: RTS\ndup: RTS", 0xC000);
         assert_eq!(errs[0].line, 2);
-        assert!(errs[0].message.contains("dup"), "message was: {}", errs[0].message);
+        assert!(
+            errs[0].message.contains("dup"),
+            "message was: {}",
+            errs[0].message
+        );
     }
 
     #[test]
@@ -580,8 +895,16 @@ data: .byte $AA";
         // instead.) Assert on the message so this cannot drift to another branch.
         let errs = errors("LDA", 0xC000);
         assert_eq!(errs[0].line, 1);
-        assert!(errs[0].message.contains("LDA"), "message was: {}", errs[0].message);
-        assert!(errs[0].message.contains("does not support"), "message was: {}", errs[0].message);
+        assert!(
+            errs[0].message.contains("LDA"),
+            "message was: {}",
+            errs[0].message
+        );
+        assert!(
+            errs[0].message.contains("does not accept no operand"),
+            "message was: {}",
+            errs[0].message
+        );
     }
 
     #[test]
@@ -596,9 +919,33 @@ data: .byte $AA";
     fn listing_maps_bytes_back_to_source_lines() {
         let a = asm("LDA #$08\nSTA $0400\nRTS", 0xC000);
         assert_eq!(a.lines.len(), 3);
-        assert_eq!((a.lines[0].address, a.lines[0].start, a.lines[0].len, a.lines[0].source_line), (0xC000, 0, 2, 1));
-        assert_eq!((a.lines[1].address, a.lines[1].start, a.lines[1].len, a.lines[1].source_line), (0xC002, 2, 3, 2));
-        assert_eq!((a.lines[2].address, a.lines[2].start, a.lines[2].len, a.lines[2].source_line), (0xC005, 5, 1, 3));
+        assert_eq!(
+            (
+                a.lines[0].address,
+                a.lines[0].start,
+                a.lines[0].len,
+                a.lines[0].source_line
+            ),
+            (0xC000, 0, 2, 1)
+        );
+        assert_eq!(
+            (
+                a.lines[1].address,
+                a.lines[1].start,
+                a.lines[1].len,
+                a.lines[1].source_line
+            ),
+            (0xC002, 2, 3, 2)
+        );
+        assert_eq!(
+            (
+                a.lines[2].address,
+                a.lines[2].start,
+                a.lines[2].len,
+                a.lines[2].source_line
+            ),
+            (0xC005, 5, 1, 3)
+        );
     }
 
     #[test]

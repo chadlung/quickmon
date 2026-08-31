@@ -29,7 +29,11 @@ pub enum Operand {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Stmt {
-    Instruction { mnemonic: Mnemonic, width: Width, operand: Operand },
+    Instruction {
+        mnemonic: Mnemonic,
+        width: Width,
+        operand: Operand,
+    },
     Byte(Vec<Expr>),
     Word(Vec<Expr>),
     Empty,
@@ -54,20 +58,32 @@ pub fn parse(src: &str) -> Result<Vec<Line>, Vec<AsmError>> {
         }
     }
 
-    if errors.is_empty() { Ok(lines) } else { Err(errors) }
+    if errors.is_empty() {
+        Ok(lines)
+    } else {
+        Err(errors)
+    }
 }
 
 fn parse_line(raw: &str, number: usize) -> Result<Line, AsmError> {
     // Strip comment, then trim.
     let text = raw.split(';').next().unwrap_or("").trim();
     if text.is_empty() {
-        return Ok(Line { number, label: None, stmt: Stmt::Empty });
+        return Ok(Line {
+            number,
+            label: None,
+            stmt: Stmt::Empty,
+        });
     }
 
-    let (label, rest) = split_label(text);
+    let (label, rest) = split_label(text, number)?;
     let rest = rest.trim();
     if rest.is_empty() {
-        return Ok(Line { number, label, stmt: Stmt::Empty });
+        return Ok(Line {
+            number,
+            label,
+            stmt: Stmt::Empty,
+        });
     }
 
     let mut parts = rest.splitn(2, char::is_whitespace);
@@ -81,15 +97,29 @@ fn parse_line(raw: &str, number: usize) -> Result<Line, AsmError> {
             for piece in tail.split(',') {
                 let piece = piece.trim();
                 if piece.is_empty() {
-                    return Err(AsmError::new(number, format!("empty value in .{lower} list")));
+                    return Err(AsmError::new(
+                        number,
+                        format!("empty value in .{lower} list"),
+                    ));
                 }
                 exprs.push(parse_expr(piece, number)?);
             }
             if exprs.is_empty() {
-                return Err(AsmError::new(number, format!(".{lower} needs at least one value")));
+                return Err(AsmError::new(
+                    number,
+                    format!(".{lower} needs at least one value"),
+                ));
             }
-            let stmt = if lower == "byte" { Stmt::Byte(exprs) } else { Stmt::Word(exprs) };
-            return Ok(Line { number, label, stmt });
+            let stmt = if lower == "byte" {
+                Stmt::Byte(exprs)
+            } else {
+                Stmt::Word(exprs)
+            };
+            return Ok(Line {
+                number,
+                label,
+                stmt,
+            });
         }
     }
 
@@ -98,10 +128,18 @@ fn parse_line(raw: &str, number: usize) -> Result<Line, AsmError> {
         .ok_or_else(|| AsmError::new(number, format!("unknown mnemonic '{mnemonic_text}'")))?;
 
     let operand = parse_operand(tail, mnemonic, number)?;
-    Ok(Line { number, label, stmt: Stmt::Instruction { mnemonic, width, operand } })
+    Ok(Line {
+        number,
+        label,
+        stmt: Stmt::Instruction {
+            mnemonic,
+            width,
+            operand,
+        },
+    })
 }
 
-fn split_label(text: &str) -> (Option<String>, &str) {
+fn split_label(text: &str, number: usize) -> Result<(Option<String>, &str), AsmError> {
     // "loop: RTS" or "loop RTS" — a leading token is a label when it is not a
     // known mnemonic and not a directive.
     let mut parts = text.splitn(2, char::is_whitespace);
@@ -109,14 +147,31 @@ fn split_label(text: &str) -> (Option<String>, &str) {
     let rest = parts.next().unwrap_or("");
 
     if let Some(name) = first.strip_suffix(':') {
-        return (Some(name.to_string()), rest);
+        // A colon says "this is a label" unambiguously, so a malformed one is
+        // an error rather than something to reinterpret. This path used to
+        // skip validation entirely, accepting `:`, `$bad:` and `bad-name:` as
+        // symbol names that no reference could ever match.
+        if !is_identifier(name) {
+            return Err(AsmError::new(
+                number,
+                if name.is_empty() {
+                    "empty label before ':'".to_string()
+                } else {
+                    format!(
+                        "'{name}' is not a valid label: start with a letter or '_', \
+                         then letters, digits or '_'"
+                    )
+                },
+            ));
+        }
+        return Ok((Some(name.to_string()), rest));
     }
     if first.starts_with('.') {
-        return (None, text);
+        return Ok((None, text));
     }
     let (base, _) = split_width_suffix(first);
     if Mnemonic::parse(base).is_some() {
-        return (None, text);
+        return Ok((None, text));
     }
     // `first` isn't a recognized mnemonic. Treat it as a label (without a
     // colon) only when the remainder of the line looks like a real
@@ -126,12 +181,12 @@ fn split_label(text: &str) -> (Option<String>, &str) {
     let rest_trimmed = rest.trim();
     let rest_head = rest_trimmed.split_whitespace().next().unwrap_or("");
     let (rest_base, _) = split_width_suffix(rest_head);
-    let rest_looks_like_statement =
-        !rest_trimmed.is_empty() && (rest_head.starts_with('.') || Mnemonic::parse(rest_base).is_some());
+    let rest_looks_like_statement = !rest_trimmed.is_empty()
+        && (rest_head.starts_with('.') || Mnemonic::parse(rest_base).is_some());
     if rest_looks_like_statement && is_identifier(first) {
-        return (Some(first.to_string()), rest);
+        return Ok((Some(first.to_string()), rest));
     }
-    (None, text)
+    Ok((None, text))
 }
 
 fn split_width_suffix(head: &str) -> (&str, Width) {
@@ -146,7 +201,9 @@ fn split_width_suffix(head: &str) -> (&str, Width) {
 
 fn is_identifier(s: &str) -> bool {
     !s.is_empty()
-        && s.chars().next().is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
+        && s.chars()
+            .next()
+            .is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
         && s.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
 }
 
@@ -154,7 +211,11 @@ fn parse_operand(tail: &str, mnemonic: Mnemonic, number: usize) -> Result<Operan
     let t = tail.trim();
 
     if t.is_empty() {
-        return Ok(if is_shift(mnemonic) { Operand::Accumulator } else { Operand::None });
+        return Ok(if is_shift(mnemonic) {
+            Operand::Accumulator
+        } else {
+            Operand::None
+        });
     }
     if t.eq_ignore_ascii_case("a") && is_shift(mnemonic) {
         return Ok(Operand::Accumulator);
@@ -178,7 +239,10 @@ fn parse_operand(tail: &str, mnemonic: Mnemonic, number: usize) -> Result<Operan
             })?;
             return Ok(Operand::IndirectIndexed(parse_expr(base.trim(), number)?));
         }
-        return Err(AsmError::new(number, format!("malformed indirect operand '{t}'")));
+        return Err(AsmError::new(
+            number,
+            format!("malformed indirect operand '{t}'"),
+        ));
     }
 
     if let Some(base) = strip_index_suffix(t, 'X') {
@@ -191,7 +255,10 @@ fn parse_operand(tail: &str, mnemonic: Mnemonic, number: usize) -> Result<Operan
 }
 
 fn is_shift(m: Mnemonic) -> bool {
-    matches!(m, Mnemonic::Asl | Mnemonic::Lsr | Mnemonic::Rol | Mnemonic::Ror)
+    matches!(
+        m,
+        Mnemonic::Asl | Mnemonic::Lsr | Mnemonic::Rol | Mnemonic::Ror
+    )
 }
 
 /// Strips a trailing `,X` / `,Y` (case-insensitive), returning the base operand.
@@ -229,7 +296,10 @@ fn parse_expr(s: &str, number: usize) -> Result<Expr, AsmError> {
     }
     match u32::from_str_radix(digits, radix) {
         Ok(v) if v <= u16::MAX as u32 => Ok(Expr::Literal(v as u16)),
-        Ok(_) => Err(AsmError::new(number, format!("value '{s}' out of range (max $FFFF)"))),
+        Ok(_) => Err(AsmError::new(
+            number,
+            format!("value '{s}' out of range (max $FFFF)"),
+        )),
         Err(_) => Err(AsmError::new(number, format!("malformed operand '{s}'"))),
     }
 }
@@ -253,7 +323,11 @@ mod tests {
     fn parses_implied() {
         assert_eq!(
             stmt("RTS"),
-            Stmt::Instruction { mnemonic: Mnemonic::Rts, width: Width::Auto, operand: Operand::None }
+            Stmt::Instruction {
+                mnemonic: Mnemonic::Rts,
+                width: Width::Auto,
+                operand: Operand::None
+            }
         );
     }
 
@@ -261,12 +335,20 @@ mod tests {
     fn parses_accumulator_forms() {
         assert_eq!(
             stmt("ASL A"),
-            Stmt::Instruction { mnemonic: Mnemonic::Asl, width: Width::Auto, operand: Operand::Accumulator }
+            Stmt::Instruction {
+                mnemonic: Mnemonic::Asl,
+                width: Width::Auto,
+                operand: Operand::Accumulator
+            }
         );
         // Bare ASL with no operand is also accumulator mode.
         assert_eq!(
             stmt("ASL"),
-            Stmt::Instruction { mnemonic: Mnemonic::Asl, width: Width::Auto, operand: Operand::Accumulator }
+            Stmt::Instruction {
+                mnemonic: Mnemonic::Asl,
+                width: Width::Auto,
+                operand: Operand::Accumulator
+            }
         );
     }
 
@@ -274,48 +356,183 @@ mod tests {
     fn parses_immediate() {
         assert_eq!(
             stmt("LDA #$08"),
-            Stmt::Instruction { mnemonic: Mnemonic::Lda, width: Width::Auto, operand: Operand::Immediate(Expr::Literal(0x08)) }
+            Stmt::Instruction {
+                mnemonic: Mnemonic::Lda,
+                width: Width::Auto,
+                operand: Operand::Immediate(Expr::Literal(0x08))
+            }
         );
     }
 
     #[test]
     fn parses_all_indexed_and_indirect_forms() {
-        assert_eq!(stmt("LDA $10"),      Stmt::Instruction { mnemonic: Mnemonic::Lda, width: Width::Auto, operand: Operand::Direct(Expr::Literal(0x10)) });
-        assert_eq!(stmt("LDA $1234"),    Stmt::Instruction { mnemonic: Mnemonic::Lda, width: Width::Auto, operand: Operand::Direct(Expr::Literal(0x1234)) });
-        assert_eq!(stmt("LDA $10,X"),    Stmt::Instruction { mnemonic: Mnemonic::Lda, width: Width::Auto, operand: Operand::DirectX(Expr::Literal(0x10)) });
-        assert_eq!(stmt("LDX $10,Y"),    Stmt::Instruction { mnemonic: Mnemonic::Ldx, width: Width::Auto, operand: Operand::DirectY(Expr::Literal(0x10)) });
-        assert_eq!(stmt("LDA ($10,X)"),  Stmt::Instruction { mnemonic: Mnemonic::Lda, width: Width::Auto, operand: Operand::IndexedIndirect(Expr::Literal(0x10)) });
-        assert_eq!(stmt("LDA ($10),Y"),  Stmt::Instruction { mnemonic: Mnemonic::Lda, width: Width::Auto, operand: Operand::IndirectIndexed(Expr::Literal(0x10)) });
-        assert_eq!(stmt("JMP ($1234)"),  Stmt::Instruction { mnemonic: Mnemonic::Jmp, width: Width::Auto, operand: Operand::Indirect(Expr::Literal(0x1234)) });
+        assert_eq!(
+            stmt("LDA $10"),
+            Stmt::Instruction {
+                mnemonic: Mnemonic::Lda,
+                width: Width::Auto,
+                operand: Operand::Direct(Expr::Literal(0x10))
+            }
+        );
+        assert_eq!(
+            stmt("LDA $1234"),
+            Stmt::Instruction {
+                mnemonic: Mnemonic::Lda,
+                width: Width::Auto,
+                operand: Operand::Direct(Expr::Literal(0x1234))
+            }
+        );
+        assert_eq!(
+            stmt("LDA $10,X"),
+            Stmt::Instruction {
+                mnemonic: Mnemonic::Lda,
+                width: Width::Auto,
+                operand: Operand::DirectX(Expr::Literal(0x10))
+            }
+        );
+        assert_eq!(
+            stmt("LDX $10,Y"),
+            Stmt::Instruction {
+                mnemonic: Mnemonic::Ldx,
+                width: Width::Auto,
+                operand: Operand::DirectY(Expr::Literal(0x10))
+            }
+        );
+        assert_eq!(
+            stmt("LDA ($10,X)"),
+            Stmt::Instruction {
+                mnemonic: Mnemonic::Lda,
+                width: Width::Auto,
+                operand: Operand::IndexedIndirect(Expr::Literal(0x10))
+            }
+        );
+        assert_eq!(
+            stmt("LDA ($10),Y"),
+            Stmt::Instruction {
+                mnemonic: Mnemonic::Lda,
+                width: Width::Auto,
+                operand: Operand::IndirectIndexed(Expr::Literal(0x10))
+            }
+        );
+        assert_eq!(
+            stmt("JMP ($1234)"),
+            Stmt::Instruction {
+                mnemonic: Mnemonic::Jmp,
+                width: Width::Auto,
+                operand: Operand::Indirect(Expr::Literal(0x1234))
+            }
+        );
     }
 
     #[test]
     fn parses_literal_radixes() {
-        assert_eq!(stmt("LDA #$0D"), Stmt::Instruction { mnemonic: Mnemonic::Lda, width: Width::Auto, operand: Operand::Immediate(Expr::Literal(13)) });
-        assert_eq!(stmt("LDA #13"),  Stmt::Instruction { mnemonic: Mnemonic::Lda, width: Width::Auto, operand: Operand::Immediate(Expr::Literal(13)) });
-        assert_eq!(stmt("LDA #%00001101"), Stmt::Instruction { mnemonic: Mnemonic::Lda, width: Width::Auto, operand: Operand::Immediate(Expr::Literal(13)) });
+        assert_eq!(
+            stmt("LDA #$0D"),
+            Stmt::Instruction {
+                mnemonic: Mnemonic::Lda,
+                width: Width::Auto,
+                operand: Operand::Immediate(Expr::Literal(13))
+            }
+        );
+        assert_eq!(
+            stmt("LDA #13"),
+            Stmt::Instruction {
+                mnemonic: Mnemonic::Lda,
+                width: Width::Auto,
+                operand: Operand::Immediate(Expr::Literal(13))
+            }
+        );
+        assert_eq!(
+            stmt("LDA #%00001101"),
+            Stmt::Instruction {
+                mnemonic: Mnemonic::Lda,
+                width: Width::Auto,
+                operand: Operand::Immediate(Expr::Literal(13))
+            }
+        );
     }
 
     #[test]
     fn parses_width_suffixes() {
-        assert_eq!(stmt("LDA.b $10"), Stmt::Instruction { mnemonic: Mnemonic::Lda, width: Width::Byte, operand: Operand::Direct(Expr::Literal(0x10)) });
-        assert_eq!(stmt("LDA.w $10"), Stmt::Instruction { mnemonic: Mnemonic::Lda, width: Width::Word, operand: Operand::Direct(Expr::Literal(0x10)) });
-        assert_eq!(stmt("lda.W $10"), Stmt::Instruction { mnemonic: Mnemonic::Lda, width: Width::Word, operand: Operand::Direct(Expr::Literal(0x10)) });
+        assert_eq!(
+            stmt("LDA.b $10"),
+            Stmt::Instruction {
+                mnemonic: Mnemonic::Lda,
+                width: Width::Byte,
+                operand: Operand::Direct(Expr::Literal(0x10))
+            }
+        );
+        assert_eq!(
+            stmt("LDA.w $10"),
+            Stmt::Instruction {
+                mnemonic: Mnemonic::Lda,
+                width: Width::Word,
+                operand: Operand::Direct(Expr::Literal(0x10))
+            }
+        );
+        assert_eq!(
+            stmt("lda.W $10"),
+            Stmt::Instruction {
+                mnemonic: Mnemonic::Lda,
+                width: Width::Word,
+                operand: Operand::Direct(Expr::Literal(0x10))
+            }
+        );
     }
 
     #[test]
     fn parses_symbol_operands() {
-        assert_eq!(stmt("JMP loop"), Stmt::Instruction { mnemonic: Mnemonic::Jmp, width: Width::Auto, operand: Operand::Direct(Expr::Symbol("loop".into())) });
-        assert_eq!(stmt("BNE loop"), Stmt::Instruction { mnemonic: Mnemonic::Bne, width: Width::Auto, operand: Operand::Direct(Expr::Symbol("loop".into())) });
+        assert_eq!(
+            stmt("JMP loop"),
+            Stmt::Instruction {
+                mnemonic: Mnemonic::Jmp,
+                width: Width::Auto,
+                operand: Operand::Direct(Expr::Symbol("loop".into()))
+            }
+        );
+        assert_eq!(
+            stmt("BNE loop"),
+            Stmt::Instruction {
+                mnemonic: Mnemonic::Bne,
+                width: Width::Auto,
+                operand: Operand::Direct(Expr::Symbol("loop".into()))
+            }
+        );
     }
 
     #[test]
     fn parses_labels_with_and_without_colon() {
         assert_eq!(one("loop: RTS").label, Some("loop".to_string()));
-        assert_eq!(one("loop RTS").label,  Some("loop".to_string()));
+        assert_eq!(one("loop RTS").label, Some("loop".to_string()));
         let bare = one("loop:");
         assert_eq!(bare.label, Some("loop".to_string()));
         assert_eq!(bare.stmt, Stmt::Empty);
+    }
+
+    #[test]
+    fn colon_labels_must_be_valid_identifiers() {
+        // A colon says "this is a label" unambiguously, so a malformed one is
+        // an error rather than something to reinterpret. This path used to skip
+        // validation entirely, accepting names no reference could ever match.
+        for src in [": RTS", "$bad: RTS", "bad-name: RTS", "9start: RTS"] {
+            let errs = parse(src).unwrap_err();
+            assert_eq!(errs[0].line, 1, "{src}");
+            assert!(
+                errs[0].message.contains("label"),
+                "{src} gave: {}",
+                errs[0].message
+            );
+        }
+    }
+
+    #[test]
+    fn valid_label_shapes_are_still_accepted() {
+        for src in ["_good9: RTS", "loop: RTS", "Loop: RTS", "a1_b2: RTS"] {
+            assert!(parse(src).is_ok(), "{src} should parse");
+        }
+        // Colon-less labels and bare instructions are unaffected.
+        assert_eq!(one("loop RTS").label, Some("loop".to_string()));
+        assert_eq!(one("RTS").label, None);
     }
 
     #[test]
@@ -324,20 +541,36 @@ mod tests {
         assert_eq!(lines.len(), 3);
         assert_eq!(lines[0].stmt, Stmt::Empty);
         assert_eq!(lines[1].stmt, Stmt::Empty);
-        assert_eq!(lines[2].stmt, Stmt::Instruction { mnemonic: Mnemonic::Rts, width: Width::Auto, operand: Operand::None });
+        assert_eq!(
+            lines[2].stmt,
+            Stmt::Instruction {
+                mnemonic: Mnemonic::Rts,
+                width: Width::Auto,
+                operand: Operand::None
+            }
+        );
     }
 
     #[test]
     fn line_numbers_are_one_based_and_cover_every_source_line() {
         let lines = parse("RTS\nRTS\nRTS").unwrap();
-        assert_eq!(lines.iter().map(|l| l.number).collect::<Vec<_>>(), vec![1, 2, 3]);
+        assert_eq!(
+            lines.iter().map(|l| l.number).collect::<Vec<_>>(),
+            vec![1, 2, 3]
+        );
     }
 
     #[test]
     fn parses_byte_and_word_directives() {
-        assert_eq!(stmt(".byte $01,$02,$03"), Stmt::Byte(vec![Expr::Literal(1), Expr::Literal(2), Expr::Literal(3)]));
+        assert_eq!(
+            stmt(".byte $01,$02,$03"),
+            Stmt::Byte(vec![Expr::Literal(1), Expr::Literal(2), Expr::Literal(3)])
+        );
         assert_eq!(stmt(".word $1234"), Stmt::Word(vec![Expr::Literal(0x1234)]));
-        assert_eq!(stmt(".byte start"), Stmt::Byte(vec![Expr::Symbol("start".into())]));
+        assert_eq!(
+            stmt(".byte start"),
+            Stmt::Byte(vec![Expr::Symbol("start".into())])
+        );
     }
 
     #[test]
@@ -345,7 +578,11 @@ mod tests {
         let errs = parse("RTS\nLDZ #$01\n").unwrap_err();
         assert_eq!(errs.len(), 1);
         assert_eq!(errs[0].line, 2);
-        assert!(errs[0].message.contains("LDZ"), "message was: {}", errs[0].message);
+        assert!(
+            errs[0].message.contains("LDZ"),
+            "message was: {}",
+            errs[0].message
+        );
     }
 
     #[test]
@@ -360,7 +597,11 @@ mod tests {
     fn reports_literal_out_of_range() {
         let errs = parse("LDA #$12345").unwrap_err();
         assert_eq!(errs[0].line, 1);
-        assert!(errs[0].message.contains("range"), "message was: {}", errs[0].message);
+        assert!(
+            errs[0].message.contains("range"),
+            "message was: {}",
+            errs[0].message
+        );
     }
 
     #[test]

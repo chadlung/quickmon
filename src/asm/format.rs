@@ -150,8 +150,14 @@ mod tests {
     #[test]
     fn never_touches_comments() {
         assert_eq!(up("; lda is a load"), "; lda is a load");
-        assert_eq!(up("lda #$08 ; load the sta value"), "LDA #$08 ; load the sta value");
-        assert_eq!(up("  ; leading blank then prose"), "  ; leading blank then prose");
+        assert_eq!(
+            up("lda #$08 ; load the sta value"),
+            "LDA #$08 ; load the sta value"
+        );
+        assert_eq!(
+            up("  ; leading blank then prose"),
+            "  ; leading blank then prose"
+        );
     }
 
     #[test]
