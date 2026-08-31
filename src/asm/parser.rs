@@ -76,7 +76,7 @@ fn parse_line(raw: &str, number: usize) -> Result<Line, AsmError> {
         });
     }
 
-    let (label, rest) = split_label(text);
+    let (label, rest) = split_label(text, number)?;
     let rest = rest.trim();
     if rest.is_empty() {
         return Ok(Line {
@@ -139,7 +139,7 @@ fn parse_line(raw: &str, number: usize) -> Result<Line, AsmError> {
     })
 }
 
-fn split_label(text: &str) -> (Option<String>, &str) {
+fn split_label(text: &str, number: usize) -> Result<(Option<String>, &str), AsmError> {
     // "loop: RTS" or "loop RTS" — a leading token is a label when it is not a
     // known mnemonic and not a directive.
     let mut parts = text.splitn(2, char::is_whitespace);
@@ -147,14 +147,31 @@ fn split_label(text: &str) -> (Option<String>, &str) {
     let rest = parts.next().unwrap_or("");
 
     if let Some(name) = first.strip_suffix(':') {
-        return (Some(name.to_string()), rest);
+        // A colon says "this is a label" unambiguously, so a malformed one is
+        // an error rather than something to reinterpret. This path used to
+        // skip validation entirely, accepting `:`, `$bad:` and `bad-name:` as
+        // symbol names that no reference could ever match.
+        if !is_identifier(name) {
+            return Err(AsmError::new(
+                number,
+                if name.is_empty() {
+                    "empty label before ':'".to_string()
+                } else {
+                    format!(
+                        "'{name}' is not a valid label: start with a letter or '_', \
+                         then letters, digits or '_'"
+                    )
+                },
+            ));
+        }
+        return Ok((Some(name.to_string()), rest));
     }
     if first.starts_with('.') {
-        return (None, text);
+        return Ok((None, text));
     }
     let (base, _) = split_width_suffix(first);
     if Mnemonic::parse(base).is_some() {
-        return (None, text);
+        return Ok((None, text));
     }
     // `first` isn't a recognized mnemonic. Treat it as a label (without a
     // colon) only when the remainder of the line looks like a real
@@ -167,9 +184,9 @@ fn split_label(text: &str) -> (Option<String>, &str) {
     let rest_looks_like_statement = !rest_trimmed.is_empty()
         && (rest_head.starts_with('.') || Mnemonic::parse(rest_base).is_some());
     if rest_looks_like_statement && is_identifier(first) {
-        return (Some(first.to_string()), rest);
+        return Ok((Some(first.to_string()), rest));
     }
-    (None, text)
+    Ok((None, text))
 }
 
 fn split_width_suffix(head: &str) -> (&str, Width) {
@@ -490,6 +507,32 @@ mod tests {
         let bare = one("loop:");
         assert_eq!(bare.label, Some("loop".to_string()));
         assert_eq!(bare.stmt, Stmt::Empty);
+    }
+
+    #[test]
+    fn colon_labels_must_be_valid_identifiers() {
+        // A colon says "this is a label" unambiguously, so a malformed one is
+        // an error rather than something to reinterpret. This path used to skip
+        // validation entirely, accepting names no reference could ever match.
+        for src in [": RTS", "$bad: RTS", "bad-name: RTS", "9start: RTS"] {
+            let errs = parse(src).unwrap_err();
+            assert_eq!(errs[0].line, 1, "{src}");
+            assert!(
+                errs[0].message.contains("label"),
+                "{src} gave: {}",
+                errs[0].message
+            );
+        }
+    }
+
+    #[test]
+    fn valid_label_shapes_are_still_accepted() {
+        for src in ["_good9: RTS", "loop: RTS", "Loop: RTS", "a1_b2: RTS"] {
+            assert!(parse(src).is_ok(), "{src} should parse");
+        }
+        // Colon-less labels and bare instructions are unaffected.
+        assert_eq!(one("loop RTS").label, Some("loop".to_string()));
+        assert_eq!(one("RTS").label, None);
     }
 
     #[test]

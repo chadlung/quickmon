@@ -257,7 +257,19 @@ fn layout(
 
     for (i, line) in lines.iter().enumerate() {
         if let Some(label) = &line.label {
-            if symbols.insert(label.clone(), pc as u16).is_some() {
+            // Check before narrowing to u16. A label placed after a program
+            // that ends exactly at $FFFF sits at $10000, and `pc as u16`
+            // silently recorded it as $0000 — a symbol pointing at the
+            // opposite end of memory from where it was written. Note the
+            // thresholds differ on purpose: a program may *end* at $10000
+            // (its last byte at $FFFF), but a label must name an address that
+            // exists.
+            if pc > 0xFFFF {
+                errors.push(AsmError::new(
+                    line.number,
+                    format!("label '{label}' would be at ${pc:04X}, past $FFFF"),
+                ));
+            } else if symbols.insert(label.clone(), pc as u16).is_some() {
                 errors.push(AsmError::new(
                     line.number,
                     format!("duplicate label '{label}'"),
@@ -837,6 +849,30 @@ data: .byte $AA";
             "message was: {}",
             errs[0].message
         );
+    }
+
+    #[test]
+    fn a_label_past_ffff_is_rejected_not_wrapped() {
+        // `RTS` at $FFFF ends the program exactly at $10000, putting the
+        // following label at an address that does not exist. `pc as u16`
+        // silently recorded it as $0000 — a symbol pointing at the opposite
+        // end of memory from where it was written.
+        let errs = errors("RTS\nend:", 0xFFFF);
+        assert_eq!(errs[0].line, 2);
+        assert!(
+            errs[0].message.contains("past $FFFF"),
+            "message was: {}",
+            errs[0].message
+        );
+    }
+
+    #[test]
+    fn a_program_may_still_end_exactly_at_ffff() {
+        // The thresholds differ on purpose: a program's last byte may sit at
+        // $FFFF (pc ends at $10000), but a label must name a real address.
+        assert_eq!(bytes("RTS", 0xFFFF), vec![0x60]);
+        assert_eq!(bytes("last: RTS", 0xFFFF), vec![0x60]);
+        assert_eq!(asm("last: RTS", 0xFFFF).symbols["last"], 0xFFFF);
     }
 
     #[test]
