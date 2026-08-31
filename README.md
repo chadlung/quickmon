@@ -22,8 +22,11 @@ confirmed present at the address you asked for — you start them yourself with
 ## Requirements
 
 - Rust 1.88 or newer (built and tested on 1.94.1, edition 2024)
-- A Commodore 64 Ultimate reachable on your network, with its REST API enabled
-- macOS, Linux, or Windows — developed and used on macOS
+- A **Commodore 64 Ultimate** reachable on your network, with its REST API enabled
+- Official Commodore firmware **v1.1.0 or newer** — the REST API QuickMon talks to
+  does not exist on earlier releases. Download it from
+  [commodore.net/downloads](https://commodore.net/downloads/).
+- macOS, Linux, or Windows
 
 ## Build and run
 
@@ -36,7 +39,8 @@ cargo run --release
 ### 1. Connect
 
 QuickMon opens with the settings panel showing and the cursor in the **Host**
-field, because there is always a host to enter:
+field. You will need to enter a valid IP address to your networked Commodore 64
+Ultimate.
 
 **Neither the host nor the password is ever written to disk.** Both are typed
 each run and live only in memory for the lifetime of the process. Nothing about
@@ -51,8 +55,7 @@ Connected — C64 Ultimate, firmware 1.1.0 (API 0.1)
 ```
 
 On failure it stays put in red so you can correct the field it is complaining
-about. If the device has a network password set (firmware 3.12+), enter it in
-the second field.
+about.
 
 ### 2. Write some assembly
 
@@ -203,4 +206,4 @@ that exercises the real path.
 
 ## Licence
 
-Not yet specified.
+GNU General Public License v3.0 or later (GPL-3.0-or-later).
