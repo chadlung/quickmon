@@ -14,8 +14,9 @@ confirmed present at the address you asked for — you start them yourself with
 - **Assembles 6510** — all 56 documented mnemonics, all 13 addressing modes,
   labels, `.byte` / `.word`, and `;` comments.
 - **Writes to the device** over `POST /v1/machine:writemem`, then reads the same
-  range back and compares it byte for byte. The status bar says
-  `verified` only when the read-back matched.
+  range back and compares it byte for byte. The status bar says `verified` only
+  on an exact, full-length match; any difference is reported neutrally as a
+  `Read-back mismatch` with the address and both bytes.
 - **Reads memory** back off the machine as a hex dump, so you can look at screen
   RAM, sprite data, or the routine you just sent.
 
@@ -115,7 +116,7 @@ compares:
 If the read-back disagrees it tells you exactly where:
 
 ```
-verify FAILED at $C003: sent D2, read back 00
+Read-back mismatch at $C003: sent D2, read back 00
 ```
 
 ### 5. Run it on the C64
@@ -186,13 +187,36 @@ of a low address costs an extra cycle, and some code depends on that timing.
 
 ## Things worth knowing
 
-**`$0000` and `$0001` cannot be written.** They are the 6510's on-chip I/O port,
-and the cartridge-bus DMA this API uses cannot reach them. QuickMon refuses
-rather than letting the write silently do nothing.
+**No address is refused.** QuickMon is an experimentation tool. It will send to
+any address you assemble to, including `$0000`/`$0001` — the 6510's on-chip
+I/O port, which the Ultimate's documentation says cartridge-bus DMA cannot
+reach. You are entitled to issue the request and see what the device actually
+reports, which is more informative than a refusal that only guesses. The one
+limit kept is structural, not editorial: a write or read must not run past
+`$FFFF`, because the API prohibits it.
 
-**Writes use the machine's currently selected memory map.** What `$D800` means
-depends on the C64's banking state at that moment. This is exactly why the
-read-back comparison exists.
+**`verified` means the bytes match, nothing more.** An exact, full-length byte
+match is reported as `verified`; any difference is a neutral
+`Read-back mismatch` giving the address, the byte sent and the byte returned.
+A mismatch is not proof of user error or of an unsafe address, and equality is
+not proof that an I/O register performed a side effect — it says only that the
+returned byte equalled the sent byte under the hardware and memory
+configuration active at that moment.
+
+**Writes use the machine's currently selected memory map**, so what an address
+exposes depends on the C64's banking state at that moment:
+
+- `$D000-$DFFF` may expose I/O, character ROM, or RAM depending on banking.
+- In the usual I/O-visible configuration, displayed Color RAM is
+  `$D800-$DBE7` and uses only the low nibble; upper-nibble read-back is
+  undefined, and `$DBE8-$DBFF` is unused. QuickMon does not mask the upper
+  bits — the same address exposes RAM in another bank configuration, and the
+  raw bus value is the useful thing here.
+- `$C000-$CFFF` is RAM in the normal no-cartridge configuration, but cartridge
+  and Ultimax configurations change what is mapped and can leave regions
+  unmapped.
+
+These are facts about the hardware, not rules QuickMon enforces.
 
 **A bad address fails in about five seconds.** The connect timeout is bounded so
 a typo in the host field costs a pause rather than the operating system's full

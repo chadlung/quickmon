@@ -138,6 +138,18 @@ impl UltimateClient {
             .bytes()
             .await
             .map_err(|e| NetError::Transport(e.to_string()))?;
+
+        // The API documents readmem as returning exactly `length` bytes. A
+        // short body previously reached write_and_verify, which papered over
+        // it by inventing a zero for the missing data; an overlong body was
+        // accepted outright, so a verification could pass on a prefix match
+        // and the memory viewer would dump whatever extra arrived.
+        if bytes.len() != length as usize {
+            return Err(NetError::UnexpectedLength {
+                expected: length as usize,
+                actual: bytes.len(),
+            });
+        }
         Ok(bytes.to_vec())
     }
 
@@ -177,6 +189,11 @@ impl UltimateClient {
         self.write_mem(address, data).await?;
         let back = self.read_mem(address, data.len() as u32).await?;
 
+        // read_mem guarantees `back.len() == data.len()`, so this is a plain
+        // search for the first differing byte. The old fallback fabricated an
+        // `actual: 0` for data the device never sent, which reported a real
+        // byte value the device had not returned.
+        debug_assert_eq!(back.len(), data.len());
         let mismatch = data
             .iter()
             .zip(back.iter())
@@ -186,13 +203,6 @@ impl UltimateClient {
                 offset,
                 expected: *expected,
                 actual: *actual,
-            })
-            .or_else(|| {
-                (back.len() < data.len()).then(|| Mismatch {
-                    offset: back.len(),
-                    expected: data[back.len()],
-                    actual: 0,
-                })
             });
 
         Ok(VerifyReport {
@@ -386,6 +396,81 @@ mod tests {
             .await
             .expect_err("should reject locally");
         assert!(matches!(err, NetError::WouldWrap { .. }), "got {err:?}");
+    }
+
+    #[tokio::test]
+    async fn read_mem_requires_exactly_the_requested_length() {
+        // The API documents readmem as returning exactly `length` bytes.
+        // Anything else means the device is not honouring the contract, and
+        // treating it as data would corrupt every comparison and hex dump
+        // built from it.
+        for (label, body, actual) in [
+            ("short", vec![1u8, 2, 3], 3usize),
+            ("long", vec![1u8, 2, 3, 4, 5, 6], 6usize),
+        ] {
+            let server = MockServer::start().await;
+            Mock::given(method("GET"))
+                .and(path("/v1/machine:readmem"))
+                .respond_with(ResponseTemplate::new(200).set_body_bytes(body))
+                .mount(&server)
+                .await;
+
+            let client = UltimateClient::new(&server.uri(), None);
+            let err = client
+                .read_mem(0x0400, 4)
+                .await
+                .expect_err("{label} body must be rejected");
+            assert_eq!(
+                err,
+                NetError::UnexpectedLength {
+                    expected: 4,
+                    actual
+                },
+                "{label} body gave: {err:?}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn read_mem_accepts_an_exact_length_body() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/v1/machine:readmem"))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(vec![1u8, 2, 3, 4]))
+            .mount(&server)
+            .await;
+
+        let client = UltimateClient::new(&server.uri(), None);
+        assert_eq!(client.read_mem(0x0400, 4).await.unwrap(), vec![1, 2, 3, 4]);
+    }
+
+    #[tokio::test]
+    async fn a_truncated_readback_fails_rather_than_reporting_a_fabricated_byte() {
+        // Previously a short body reached write_and_verify, which reported a
+        // Mismatch with `actual: 0` — a concrete byte value the device never
+        // sent. It is now a protocol error, so nothing invents data.
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(ok_body()))
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(vec![0xA9u8]))
+            .mount(&server)
+            .await;
+
+        let client = UltimateClient::new(&server.uri(), None);
+        let err = client
+            .write_and_verify(0xC000, &[0xA9, 0x08])
+            .await
+            .expect_err("a truncated read-back must not be reported as a mismatch");
+        assert_eq!(
+            err,
+            NetError::UnexpectedLength {
+                expected: 2,
+                actual: 1
+            }
+        );
     }
 
     #[tokio::test]
