@@ -51,9 +51,33 @@ fn operand_expr(operand: &Operand) -> Option<&Expr> {
 }
 
 /// The modes a given mnemonic actually supports, filtered from the candidates.
+/// Human name for an operand form, for error messages.
+fn operand_form(operand: &Operand) -> &'static str {
+    match operand {
+        Operand::None => "no operand",
+        Operand::Accumulator => "an accumulator operand",
+        Operand::Immediate(_) => "an immediate operand",
+        Operand::Direct(_) => "a direct operand",
+        Operand::DirectX(_) => "an ,X-indexed operand",
+        Operand::DirectY(_) => "a ,Y-indexed operand",
+        Operand::IndexedIndirect(_) => "an (indirect,X) operand",
+        Operand::IndirectIndexed(_) => "an (indirect),Y operand",
+        Operand::Indirect(_) => "an indirect operand",
+    }
+}
+
 fn legal_modes(m: Mnemonic, operand: &Operand) -> Vec<AddrMode> {
     if m.is_branch() {
-        return vec![AddrMode::Relative];
+        // A branch takes exactly one operand form: a direct target, encoded
+        // relative. Every other form is an error — including no operand at
+        // all, which previously reserved two bytes during layout and emitted
+        // only the one-byte opcode. That left the emitted program one byte
+        // short of what every later label's address assumed: the bytes and
+        // the symbol table disagreed, silently.
+        return match operand {
+            Operand::Direct(_) => vec![AddrMode::Relative],
+            _ => Vec::new(),
+        };
     }
     candidates(operand)
         .iter()
@@ -79,7 +103,11 @@ pub fn encode(lines: &[Line], org: u16) -> Result<Assembly, Vec<AsmError>> {
                 if legal.is_empty() {
                     errors.push(AsmError::new(
                         line.number,
-                        format!("{} does not support this operand form", name_of(*mnemonic)),
+                        format!(
+                            "{} does not accept {}",
+                            name_of(*mnemonic),
+                            operand_form(operand)
+                        ),
                     ));
                     None
                 } else {
@@ -281,8 +309,19 @@ fn emit(
                     };
 
                     if mode == AddrMode::Relative {
-                        let next = address as i32 + 2;
-                        let disp = value as i32 - next;
+                        // The 6510 adds the signed displacement to the 16-bit
+                        // address of the *next* instruction and wraps at 16
+                        // bits, so a branch across $FFFF/$0000 is legal
+                        // hardware. Subtracting as i32 modelled a flat address
+                        // space and rejected those, reporting nonsense like
+                        // "-65536 bytes".
+                        //
+                        // Reinterpreting the wrapping u16 difference as i16 is
+                        // not a narrowing cast — both are 16 bits — so the
+                        // -128..=127 check below remains a real bound and a
+                        // distant target cannot masquerade as reachable.
+                        let next = (address as u16).wrapping_add(2);
+                        let disp = value.wrapping_sub(next) as i16;
                         if !(-128..=127).contains(&disp) {
                             errors.push(AsmError::new(
                                 line.number,
@@ -543,6 +582,75 @@ x: .byte $02";
     // ---- branches ----
 
     #[test]
+    fn branches_accept_only_a_direct_target() {
+        // Every one of these previously reached the relative-encoding path and
+        // was rejected — if at all — by the displacement range check, which
+        // produced nonsense like "branch to '$0010' is -49138 bytes".
+        for src in [
+            "BNE #$10",
+            "BNE ($10)",
+            "BNE ($10,X)",
+            "BNE ($10),Y",
+            "BNE $10,X",
+            "BNE $10,Y",
+        ] {
+            let errs = errors(src, 0xC000);
+            assert_eq!(errs[0].line, 1, "{src}");
+            assert!(
+                errs[0].message.contains("BNE does not accept"),
+                "{src} gave: {}",
+                errs[0].message
+            );
+        }
+        // The one legal form still works.
+        assert_eq!(bytes("BNE t\nt: RTS", 0xC000), vec![0xD0, 0x00, 0x60]);
+    }
+
+    #[test]
+    fn a_branch_without_an_operand_cannot_corrupt_later_labels() {
+        // This is the defect that mattered: layout reserved two bytes for the
+        // branch and emission wrote one, so the emitted program was a byte
+        // shorter than every later label's address assumed. `BNE\nend: RTS`
+        // assembled to D0 60 with `end` recorded at $C002 while the 60 sat at
+        // $C001 — wrong bytes and a lying symbol table, silently.
+        let errs = errors("BNE\nend: RTS", 0xC000);
+        assert_eq!(errs[0].line, 1);
+        assert!(
+            errs[0].message.contains("does not accept no operand"),
+            "message was: {}",
+            errs[0].message
+        );
+    }
+
+    #[test]
+    fn branches_wrap_at_the_16_bit_address_boundary() {
+        // The 6510 adds the displacement to the 16-bit address of the next
+        // instruction and wraps, so both of these are legal hardware. The old
+        // i32 subtraction modelled a flat address space and rejected them.
+        assert_eq!(bytes("BNE $0000", 0xFFFE), vec![0xD0, 0x00]);
+        assert_eq!(bytes("BNE $FFFF", 0x0000), vec![0xD0, 0xFD]);
+    }
+
+    #[test]
+    fn wrapping_does_not_make_distant_targets_reachable() {
+        // The u16->i16 reinterpretation must not turn an unreachable target
+        // into a valid short branch.
+        let errs = errors("BNE $C200", 0xC000);
+        assert_eq!(errs[0].line, 1);
+        assert!(
+            errs[0].message.contains("limit is -128 to +127"),
+            "message was: {}",
+            errs[0].message
+        );
+        // And the reported distance must be sane, not the old "-65536".
+        assert!(
+            !errs[0].message.contains("65536"),
+            "message was: {}",
+            errs[0].message
+        );
+    }
+
+    #[test]
     fn branch_offsets_forward_and_backward() {
         // BNE at $C000 is 2 bytes; target $C002 -> offset 0.
         assert_eq!(bytes("BNE done\ndone: RTS", 0xC000), vec![0xD0, 0x00, 0x60]);
@@ -661,7 +769,7 @@ data: .byte $AA";
             errs[0].message
         );
         assert!(
-            errs[0].message.contains("does not support"),
+            errs[0].message.contains("does not accept no operand"),
             "message was: {}",
             errs[0].message
         );
