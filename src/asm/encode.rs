@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 
 use crate::asm::error::AsmError;
-use crate::asm::opcodes::{opcode, AddrMode, Mnemonic};
+use crate::asm::opcodes::{AddrMode, Mnemonic, opcode};
 use crate::asm::parser::{Expr, Line, Operand, Stmt, Width};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -70,7 +70,11 @@ pub fn encode(lines: &[Line], org: u16) -> Result<Assembly, Vec<AsmError>> {
     // Initial choice: narrowest legal mode, honouring an explicit width suffix.
     for line in lines {
         let mode = match &line.stmt {
-            Stmt::Instruction { mnemonic, width, operand } => {
+            Stmt::Instruction {
+                mnemonic,
+                width,
+                operand,
+            } => {
                 let legal = legal_modes(*mnemonic, operand);
                 if legal.is_empty() {
                     errors.push(AsmError::new(
@@ -116,7 +120,14 @@ pub fn encode(lines: &[Line], org: u16) -> Result<Assembly, Vec<AsmError>> {
 
         let mut widened = false;
         for (i, line) in lines.iter().enumerate() {
-            let Stmt::Instruction { mnemonic, width, operand } = &line.stmt else { continue };
+            let Stmt::Instruction {
+                mnemonic,
+                width,
+                operand,
+            } = &line.stmt
+            else {
+                continue;
+            };
             if *width != Width::Auto {
                 continue; // explicit override never widens
             }
@@ -124,8 +135,12 @@ pub fn encode(lines: &[Line], org: u16) -> Result<Assembly, Vec<AsmError>> {
             if legal.len() < 2 {
                 continue; // unambiguous
             }
-            let Some(expr) = operand_expr(operand) else { continue };
-            let Some(value) = resolve(expr, &symbols) else { continue };
+            let Some(expr) = operand_expr(operand) else {
+                continue;
+            };
+            let Some(value) = resolve(expr, &symbols) else {
+                continue;
+            };
             let current = chosen[i].expect("instruction has a mode");
             if value > 0xFF && current.operand_len() == 1 && !mnemonic.is_branch() {
                 chosen[i] = Some(legal[legal.len() - 1]);
@@ -169,7 +184,10 @@ fn layout(
     for (i, line) in lines.iter().enumerate() {
         if let Some(label) = &line.label {
             if symbols.insert(label.clone(), pc as u16).is_some() {
-                errors.push(AsmError::new(line.number, format!("duplicate label '{label}'")));
+                errors.push(AsmError::new(
+                    line.number,
+                    format!("duplicate label '{label}'"),
+                ));
             }
         }
         pc += stmt_len(line, chosen[i]);
@@ -179,7 +197,11 @@ fn layout(
         }
     }
 
-    if errors.is_empty() { Ok(symbols) } else { Err(errors) }
+    if errors.is_empty() {
+        Ok(symbols)
+    } else {
+        Err(errors)
+    }
 }
 
 fn resolve(expr: &Expr, symbols: &BTreeMap<String, u16>) -> Option<u16> {
@@ -231,14 +253,21 @@ fn emit(
                 }
             }
 
-            Stmt::Instruction { mnemonic, width, operand } => {
+            Stmt::Instruction {
+                mnemonic,
+                width,
+                operand,
+            } => {
                 let mode = chosen[i].expect("instruction has a mode");
                 let op = match opcode(*mnemonic, mode) {
                     Some(op) => op,
                     None => {
                         errors.push(AsmError::new(
                             line.number,
-                            format!("{} does not support this addressing mode", name_of(*mnemonic)),
+                            format!(
+                                "{} does not support this addressing mode",
+                                name_of(*mnemonic)
+                            ),
                         ));
                         continue;
                     }
@@ -309,7 +338,12 @@ fn emit(
     }
 
     if errors.is_empty() {
-        Ok(Assembly { org, bytes, lines: listing, symbols: symbols.clone() })
+        Ok(Assembly {
+            org,
+            bytes,
+            lines: listing,
+            symbols: symbols.clone(),
+        })
     } else {
         Err(errors)
     }
@@ -353,18 +387,18 @@ mod tests {
 
     #[test]
     fn emits_each_addressing_mode() {
-        assert_eq!(bytes("RTS", 0xC000),          vec![0x60]);
-        assert_eq!(bytes("ASL A", 0xC000),        vec![0x0A]);
-        assert_eq!(bytes("LDA #$08", 0xC000),     vec![0xA9, 0x08]);
-        assert_eq!(bytes("LDA $10", 0xC000),      vec![0xA5, 0x10]);
-        assert_eq!(bytes("LDA $10,X", 0xC000),    vec![0xB5, 0x10]);
-        assert_eq!(bytes("LDX $10,Y", 0xC000),    vec![0xB6, 0x10]);
-        assert_eq!(bytes("LDA $1234", 0xC000),    vec![0xAD, 0x34, 0x12]);
-        assert_eq!(bytes("LDA $1234,X", 0xC000),  vec![0xBD, 0x34, 0x12]);
-        assert_eq!(bytes("LDA $1234,Y", 0xC000),  vec![0xB9, 0x34, 0x12]);
-        assert_eq!(bytes("LDA ($10,X)", 0xC000),  vec![0xA1, 0x10]);
-        assert_eq!(bytes("LDA ($10),Y", 0xC000),  vec![0xB1, 0x10]);
-        assert_eq!(bytes("JMP ($1234)", 0xC000),  vec![0x6C, 0x34, 0x12]);
+        assert_eq!(bytes("RTS", 0xC000), vec![0x60]);
+        assert_eq!(bytes("ASL A", 0xC000), vec![0x0A]);
+        assert_eq!(bytes("LDA #$08", 0xC000), vec![0xA9, 0x08]);
+        assert_eq!(bytes("LDA $10", 0xC000), vec![0xA5, 0x10]);
+        assert_eq!(bytes("LDA $10,X", 0xC000), vec![0xB5, 0x10]);
+        assert_eq!(bytes("LDX $10,Y", 0xC000), vec![0xB6, 0x10]);
+        assert_eq!(bytes("LDA $1234", 0xC000), vec![0xAD, 0x34, 0x12]);
+        assert_eq!(bytes("LDA $1234,X", 0xC000), vec![0xBD, 0x34, 0x12]);
+        assert_eq!(bytes("LDA $1234,Y", 0xC000), vec![0xB9, 0x34, 0x12]);
+        assert_eq!(bytes("LDA ($10,X)", 0xC000), vec![0xA1, 0x10]);
+        assert_eq!(bytes("LDA ($10),Y", 0xC000), vec![0xB1, 0x10]);
+        assert_eq!(bytes("JMP ($1234)", 0xC000), vec![0x6C, 0x34, 0x12]);
     }
 
     #[test]
@@ -382,7 +416,10 @@ mod tests {
     #[test]
     fn resolves_forward_label_reference() {
         // JMP is 3 bytes, so `done` is at $C003.
-        assert_eq!(bytes("JMP done\ndone: RTS", 0xC000), vec![0x4C, 0x03, 0xC0, 0x60]);
+        assert_eq!(
+            bytes("JMP done\ndone: RTS", 0xC000),
+            vec![0x4C, 0x03, 0xC0, 0x60]
+        );
     }
 
     // ---- the sizing loop ----
@@ -443,7 +480,10 @@ x: .byte $02";
     #[test]
     fn jmp_never_uses_zero_page() {
         // JMP has no zero-page form, so a low target still assembles absolute.
-        assert_eq!(bytes("JMP target\ntarget: RTS", 0x0010), vec![0x4C, 0x13, 0x00, 0x60]);
+        assert_eq!(
+            bytes("JMP target\ntarget: RTS", 0x0010),
+            vec![0x4C, 0x13, 0x00, 0x60]
+        );
     }
 
     #[test]
@@ -451,7 +491,11 @@ x: .byte $02";
         // STX supports zero page,Y but not absolute,Y.
         assert_eq!(bytes("STX $10,Y", 0xC000), vec![0x96, 0x10]);
         let errs = errors("STX $1234,Y", 0xC000);
-        assert!(errs[0].message.to_lowercase().contains("stx"), "message was: {}", errs[0].message);
+        assert!(
+            errs[0].message.to_lowercase().contains("stx"),
+            "message was: {}",
+            errs[0].message
+        );
     }
 
     // ---- width overrides ----
@@ -469,8 +513,16 @@ x: .byte $02";
         // of the suffix, which is deliberate control over length and cycle timing.
         let errs = errors("STX.w $10,Y", 0xC000);
         assert_eq!(errs[0].line, 1);
-        assert!(errs[0].message.contains("STX"), "message was: {}", errs[0].message);
-        assert!(errs[0].message.contains(".w"), "message was: {}", errs[0].message);
+        assert!(
+            errs[0].message.contains("STX"),
+            "message was: {}",
+            errs[0].message
+        );
+        assert!(
+            errs[0].message.contains(".w"),
+            "message was: {}",
+            errs[0].message
+        );
 
         // ...but the fix must not over-reach: `.w` on a mnemonic that does have an
         // absolute form still widens as before.
@@ -481,8 +533,11 @@ x: .byte $02";
     fn byte_suffix_on_oversized_value_is_an_error_not_a_truncation() {
         let errs = errors("LDA.b $1234", 0xC000);
         assert_eq!(errs[0].line, 1);
-        assert!(errs[0].message.contains("$1234") || errs[0].message.contains("zero page"),
-                "message was: {}", errs[0].message);
+        assert!(
+            errs[0].message.contains("$1234") || errs[0].message.contains("zero page"),
+            "message was: {}",
+            errs[0].message
+        );
     }
 
     // ---- branches ----
@@ -499,7 +554,9 @@ x: .byte $02";
     fn branch_range_boundaries_are_accepted() {
         // +127: 127 bytes of NOP between the branch and the target.
         let mut src = String::from("BNE far\n");
-        for _ in 0..127 { src.push_str("NOP\n"); }
+        for _ in 0..127 {
+            src.push_str("NOP\n");
+        }
         src.push_str("far: RTS");
         let out = bytes(&src, 0xC000);
         assert_eq!(out[0], 0xD0);
@@ -507,7 +564,9 @@ x: .byte $02";
 
         // -128
         let mut src = String::from("back: NOP\n");
-        for _ in 0..125 { src.push_str("NOP\n"); }
+        for _ in 0..125 {
+            src.push_str("NOP\n");
+        }
         src.push_str("BNE back");
         let out = bytes(&src, 0xC000);
         assert_eq!(*out.last().unwrap(), 0x80); // -128
@@ -516,13 +575,18 @@ x: .byte $02";
     #[test]
     fn branch_out_of_range_reports_displacement_and_limit() {
         let mut src = String::from("BNE far\n");
-        for _ in 0..200 { src.push_str("NOP\n"); }
+        for _ in 0..200 {
+            src.push_str("NOP\n");
+        }
         src.push_str("far: RTS");
         let errs = errors(&src, 0xC000);
         assert_eq!(errs[0].line, 1);
         let m = &errs[0].message;
         assert!(m.contains("far"), "message was: {m}");
-        assert!(m.contains("127") || m.contains("128"), "message should state the limit: {m}");
+        assert!(
+            m.contains("127") || m.contains("128"),
+            "message should state the limit: {m}"
+        );
     }
 
     #[test]
@@ -546,7 +610,10 @@ data: .byte $AA";
     fn emits_byte_and_word_directives() {
         assert_eq!(bytes(".byte $01,$02,$03", 0xC000), vec![0x01, 0x02, 0x03]);
         assert_eq!(bytes(".word $1234", 0xC000), vec![0x34, 0x12]);
-        assert_eq!(bytes("target: .byte $AA\n.word target", 0xC000), vec![0xAA, 0x00, 0xC0]);
+        assert_eq!(
+            bytes("target: .byte $AA\n.word target", 0xC000),
+            vec![0xAA, 0x00, 0xC0]
+        );
     }
 
     #[test]
@@ -561,14 +628,22 @@ data: .byte $AA";
     fn reports_undefined_symbol() {
         let errs = errors("JMP nowhere", 0xC000);
         assert_eq!(errs[0].line, 1);
-        assert!(errs[0].message.contains("nowhere"), "message was: {}", errs[0].message);
+        assert!(
+            errs[0].message.contains("nowhere"),
+            "message was: {}",
+            errs[0].message
+        );
     }
 
     #[test]
     fn reports_duplicate_label() {
         let errs = errors("dup: RTS\ndup: RTS", 0xC000);
         assert_eq!(errs[0].line, 2);
-        assert!(errs[0].message.contains("dup"), "message was: {}", errs[0].message);
+        assert!(
+            errs[0].message.contains("dup"),
+            "message was: {}",
+            errs[0].message
+        );
     }
 
     #[test]
@@ -580,8 +655,16 @@ data: .byte $AA";
         // instead.) Assert on the message so this cannot drift to another branch.
         let errs = errors("LDA", 0xC000);
         assert_eq!(errs[0].line, 1);
-        assert!(errs[0].message.contains("LDA"), "message was: {}", errs[0].message);
-        assert!(errs[0].message.contains("does not support"), "message was: {}", errs[0].message);
+        assert!(
+            errs[0].message.contains("LDA"),
+            "message was: {}",
+            errs[0].message
+        );
+        assert!(
+            errs[0].message.contains("does not support"),
+            "message was: {}",
+            errs[0].message
+        );
     }
 
     #[test]
@@ -596,9 +679,33 @@ data: .byte $AA";
     fn listing_maps_bytes_back_to_source_lines() {
         let a = asm("LDA #$08\nSTA $0400\nRTS", 0xC000);
         assert_eq!(a.lines.len(), 3);
-        assert_eq!((a.lines[0].address, a.lines[0].start, a.lines[0].len, a.lines[0].source_line), (0xC000, 0, 2, 1));
-        assert_eq!((a.lines[1].address, a.lines[1].start, a.lines[1].len, a.lines[1].source_line), (0xC002, 2, 3, 2));
-        assert_eq!((a.lines[2].address, a.lines[2].start, a.lines[2].len, a.lines[2].source_line), (0xC005, 5, 1, 3));
+        assert_eq!(
+            (
+                a.lines[0].address,
+                a.lines[0].start,
+                a.lines[0].len,
+                a.lines[0].source_line
+            ),
+            (0xC000, 0, 2, 1)
+        );
+        assert_eq!(
+            (
+                a.lines[1].address,
+                a.lines[1].start,
+                a.lines[1].len,
+                a.lines[1].source_line
+            ),
+            (0xC002, 2, 3, 2)
+        );
+        assert_eq!(
+            (
+                a.lines[2].address,
+                a.lines[2].start,
+                a.lines[2].len,
+                a.lines[2].source_line
+            ),
+            (0xC005, 5, 1, 3)
+        );
     }
 
     #[test]

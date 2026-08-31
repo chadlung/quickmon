@@ -22,7 +22,9 @@ impl Config {
     }
 
     pub fn load() -> Self {
-        let Some(path) = Self::path() else { return Self::default() };
+        let Some(path) = Self::path() else {
+            return Self::default();
+        };
         match std::fs::read_to_string(&path) {
             Ok(s) => Self::from_str_or_default(&s),
             Err(_) => Self::default(),
@@ -30,7 +32,9 @@ impl Config {
     }
 
     pub fn save(&self) -> std::io::Result<()> {
-        let Some(path) = Self::path() else { return Ok(()) };
+        let Some(path) = Self::path() else {
+            return Ok(());
+        };
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
         }
@@ -49,13 +53,21 @@ mod tests {
         let cfg = Config { last_dir: None };
         let json = serde_json::to_string(&cfg).unwrap();
         let lower = json.to_lowercase();
-        assert!(!lower.contains("password"), "config must never carry a password: {json}");
-        assert!(!lower.contains("host"), "config must never carry a host: {json}");
+        assert!(
+            !lower.contains("password"),
+            "config must never carry a password: {json}"
+        );
+        assert!(
+            !lower.contains("host"),
+            "config must never carry a host: {json}"
+        );
     }
 
     #[test]
     fn round_trips_last_dir() {
-        let cfg = Config { last_dir: Some(std::path::PathBuf::from("/tmp/asm")) };
+        let cfg = Config {
+            last_dir: Some(std::path::PathBuf::from("/tmp/asm")),
+        };
         let json = serde_json::to_string(&cfg).unwrap();
         let back: Config = serde_json::from_str(&json).unwrap();
         assert_eq!(back.last_dir, Some(std::path::PathBuf::from("/tmp/asm")));
@@ -69,7 +81,10 @@ mod tests {
 
     #[test]
     fn load_returns_default_when_file_is_missing_or_corrupt() {
-        assert_eq!(Config::from_str_or_default("not json at all").last_dir, None);
+        assert_eq!(
+            Config::from_str_or_default("not json at all").last_dir,
+            None
+        );
         assert_eq!(
             Config::from_str_or_default(r#"{"last_dir":"/tmp/asm"}"#).last_dir,
             Some(std::path::PathBuf::from("/tmp/asm"))

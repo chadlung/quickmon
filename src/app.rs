@@ -1,8 +1,8 @@
-use iced::widget::{button, column, container, row, scrollable, text, text_editor, text_input};
 use iced::alignment::Vertical;
+use iced::widget::{button, column, container, row, scrollable, text, text_editor, text_input};
 use iced::{Element, Length, Task};
 
-use crate::asm::{assemble, Assembly, AsmError};
+use crate::asm::{AsmError, Assembly, assemble};
 use crate::config::Config;
 use crate::net::{NetError, UltimateClient, VerifyReport};
 use crate::ui::hex::{format_bytes, parse_addr};
@@ -97,13 +97,19 @@ pub enum StatusKind {
 
 impl Status {
     pub fn good(text: impl Into<String>) -> Self {
-        Self { text: text.into(), kind: StatusKind::Good }
+        Self {
+            text: text.into(),
+            kind: StatusKind::Good,
+        }
     }
 }
 
 impl<T: Into<String>> From<T> for Status {
     fn from(text: T) -> Self {
-        Self { text: text.into(), kind: StatusKind::Plain }
+        Self {
+            text: text.into(),
+            kind: StatusKind::Plain,
+        }
     }
 }
 
@@ -161,9 +167,7 @@ impl State {
     /// previous assembly, or an error list. Keeps the button dark when pressing
     /// it would be a no-op, matching Send and Connect.
     fn has_anything_to_clear(&self) -> bool {
-        !self.source.text().trim().is_empty()
-            || self.assembly.is_some()
-            || !self.errors.is_empty()
+        !self.source.text().trim().is_empty() || self.assembly.is_some() || !self.errors.is_empty()
     }
 
     /// Validates the host and builds an `UltimateClient` for it. All three
@@ -279,11 +283,8 @@ pub fn update(state: &mut State, message: Message) -> Task<Message> {
                     // Decimal as well as hex: the address is what gets typed
                     // into `SYS <n>` on the C64, and converting by hand every
                     // time is exactly the sort of chore a tool should absorb.
-                    state.status = format!(
-                        "{} bytes assembled at ${org:04X} ({org})",
-                        a.bytes.len()
-                    )
-                    .into();
+                    state.status =
+                        format!("{} bytes assembled at ${org:04X} ({org})", a.bytes.len()).into();
                     state.errors.clear();
                     state.assembly = Some(a);
                 }
@@ -441,7 +442,10 @@ pub fn update(state: &mut State, message: Message) -> Task<Message> {
                     if let Some(dir) = start {
                         dialog = dialog.set_directory(dir);
                     }
-                    let handle = dialog.pick_file().await.ok_or_else(|| "cancelled".to_string())?;
+                    let handle = dialog
+                        .pick_file()
+                        .await
+                        .ok_or_else(|| "cancelled".to_string())?;
                     let path = handle.path().to_path_buf();
                     let text = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
                     Ok((path, text))
@@ -483,7 +487,10 @@ pub fn update(state: &mut State, message: Message) -> Task<Message> {
                     if let Some(dir) = start {
                         dialog = dialog.set_directory(dir);
                     }
-                    let handle = dialog.save_file().await.ok_or_else(|| "cancelled".to_string())?;
+                    let handle = dialog
+                        .save_file()
+                        .await
+                        .ok_or_else(|| "cancelled".to_string())?;
                     let path = handle.path().to_path_buf();
                     std::fs::write(&path, text).map_err(|e| e.to_string())?;
                     Ok(path)
@@ -580,7 +587,9 @@ pub fn view(state: &State) -> Element<'_, Message> {
             ]
             .spacing(8)
             .align_y(Vertical::Center),
-            text("Neither host nor password is saved — re-enter both each time you start QuickMon."),
+            text(
+                "Neither host nor password is saved — re-enter both each time you start QuickMon."
+            ),
             row![
                 // Disabled until a host is entered: with a blank host the
                 // request cannot go anywhere, and `State::client` would only
@@ -589,10 +598,8 @@ pub fn view(state: &State) -> Element<'_, Message> {
                     (!state.host.trim().is_empty()).then_some(Message::TestConnection),
                 ),
                 match &state.connection {
-                    Some(ConnectionStatus::Connected(msg)) =>
-                        text(msg).font(BOLD).color(OK_GREEN),
-                    Some(ConnectionStatus::Failed(msg)) =>
-                        text(msg).font(BOLD).color(FAIL_RED),
+                    Some(ConnectionStatus::Connected(msg)) => text(msg).font(BOLD).color(OK_GREEN),
+                    Some(ConnectionStatus::Failed(msg)) => text(msg).font(BOLD).color(FAIL_RED),
                     Some(ConnectionStatus::Testing) => text("Testing…"),
                     None => text(""),
                 },
@@ -632,7 +639,7 @@ pub fn view(state: &State) -> Element<'_, Message> {
         // typed. Only unmodified Tab is captured, leaving Shift+Tab free for
         // an unindent binding later.
         .key_binding(|press| {
-            use iced::keyboard::{key, Key};
+            use iced::keyboard::{Key, key};
             let is_plain_tab = matches!(press.key.as_ref(), Key::Named(key::Named::Tab))
                 && !press.modifiers.shift();
             let focused = matches!(press.status, text_editor::Status::Focused { .. });
@@ -680,41 +687,43 @@ pub fn view(state: &State) -> Element<'_, Message> {
     .spacing(6);
 
     column![
-    container(column![
-        toolbar,
-        settings,
-        row![
-            container(editor)
-                .width(Length::FillPortion(1))
+        container(
+            column![
+                toolbar,
+                settings,
+                row![
+                    container(editor)
+                        .width(Length::FillPortion(1))
+                        .height(Length::Fill),
+                    // Framed to match the editor beside it: text_editor draws its own
+                    // border, a bare scrollable does not, so the two panes read as
+                    // different kinds of thing without this.
+                    container(right)
+                        .width(Length::FillPortion(1))
+                        .height(Length::Fill)
+                        .padding(5)
+                        .style(container::bordered_box),
+                ]
+                .spacing(8)
                 .height(Length::Fill),
-            // Framed to match the editor beside it: text_editor draws its own
-            // border, a bare scrollable does not, so the two panes read as
-            // different kinds of thing without this.
-            container(right)
-                .width(Length::FillPortion(1))
-                .height(Length::Fill)
-                .padding(5)
-                .style(container::bordered_box),
-        ]
-        .spacing(8)
+                memview,
+            ]
+            .spacing(8)
+        )
+        .padding(10)
         .height(Length::Fill),
-        memview,
+        // A status bar, not a floating line: full width, its own padding, and
+        // the theme's bordered-box surface so it reads as a distinct region
+        // pinned to the bottom edge.
+        container(match state.status.kind {
+            StatusKind::Good => text(&state.status.text).font(BOLD).color(OK_GREEN),
+            StatusKind::Plain => text(&state.status.text),
+        })
+        .width(Length::Fill)
+        .padding([6, 10])
+        .style(container::bordered_box),
     ]
-    .spacing(8))
-    .padding(10)
-    .height(Length::Fill),
-    // A status bar, not a floating line: full width, its own padding, and
-    // the theme's bordered-box surface so it reads as a distinct region
-    // pinned to the bottom edge.
-    container(match state.status.kind {
-        StatusKind::Good => text(&state.status.text).font(BOLD).color(OK_GREEN),
-        StatusKind::Plain => text(&state.status.text),
-    })
-    .width(Length::Fill)
-    .padding([6, 10])
-    .style(container::bordered_box),
-]
-.into()
+    .into()
 }
 
 #[cfg(test)]
@@ -725,8 +734,15 @@ mod tests {
 
     #[test]
     fn summary_reports_a_verified_write() {
-        let r = Ok(VerifyReport { address: 0xC000, written: 11, mismatch: None });
-        assert_eq!(send_summary(&r), "11 bytes written to $C000 (49152) — verified");
+        let r = Ok(VerifyReport {
+            address: 0xC000,
+            written: 11,
+            mismatch: None,
+        });
+        assert_eq!(
+            send_summary(&r),
+            "11 bytes written to $C000 (49152) — verified"
+        );
     }
 
     #[test]
@@ -734,7 +750,11 @@ mod tests {
         let r = Ok(VerifyReport {
             address: 0xC000,
             written: 11,
-            mismatch: Some(Mismatch { offset: 3, expected: 0xD2, actual: 0x00 }),
+            mismatch: Some(Mismatch {
+                offset: 3,
+                expected: 0xD2,
+                actual: 0x00,
+            }),
         });
         assert_eq!(
             send_summary(&r),
@@ -744,14 +764,18 @@ mod tests {
 
     #[test]
     fn summary_surfaces_device_reported_errors() {
-        let r = Err(NetError::Api { errors: vec!["address out of range".into()] });
+        let r = Err(NetError::Api {
+            errors: vec!["address out of range".into()],
+        });
         assert_eq!(send_summary(&r), "Device reported: address out of range");
     }
 
     #[test]
     fn summary_surfaces_transport_and_http_errors() {
-        assert!(send_summary(&Err(NetError::Transport("connection refused".into())))
-            .contains("connection refused"));
+        assert!(
+            send_summary(&Err(NetError::Transport("connection refused".into())))
+                .contains("connection refused")
+        );
         assert!(send_summary(&Err(NetError::Http { status: 403 })).contains("403"));
     }
 
@@ -789,19 +813,36 @@ mod tests {
         // touches the real config directory. The state mutation under test
         // — `last_dir`, editor contents, status — happens synchronously above
         // that, so it is fully verified without any I/O.
-        let _ = update(&mut state, Message::FileOpened(Ok((path.clone(), "RTS\n".to_string()))));
+        let _ = update(
+            &mut state,
+            Message::FileOpened(Ok((path.clone(), "RTS\n".to_string()))),
+        );
         assert_eq!(state.source.text().trim_end(), "RTS");
-        assert_eq!(state.config.last_dir, Some(std::path::PathBuf::from("/tmp/asm")));
-        assert!(state.status.text.contains("hi.asm"), "status was: {}", state.status.text);
+        assert_eq!(
+            state.config.last_dir,
+            Some(std::path::PathBuf::from("/tmp/asm"))
+        );
+        assert!(
+            state.status.text.contains("hi.asm"),
+            "status was: {}",
+            state.status.text
+        );
     }
 
     #[test]
     fn a_failed_open_leaves_the_editor_untouched() {
         let mut state = State::default();
         let before = state.source.text();
-        let _ = update(&mut state, Message::FileOpened(Err("permission denied".to_string())));
+        let _ = update(
+            &mut state,
+            Message::FileOpened(Err("permission denied".to_string())),
+        );
         assert_eq!(state.source.text(), before);
-        assert!(state.status.text.contains("permission denied"), "status was: {}", state.status.text);
+        assert!(
+            state.status.text.contains("permission denied"),
+            "status was: {}",
+            state.status.text
+        );
     }
 
     // --- BLOCKING 1: stale `Assembly` must not survive an edit ---
@@ -810,12 +851,18 @@ mod tests {
     fn editing_the_source_after_assembling_clears_the_stale_assembly() {
         let mut state = State::default();
         let _ = update(&mut state, Message::Assemble);
-        assert!(state.assembly.is_some(), "precondition: an assembly exists before the edit");
+        assert!(
+            state.assembly.is_some(),
+            "precondition: an assembly exists before the edit"
+        );
 
         let action = text_editor::Action::Edit(text_editor::Edit::Insert('x'));
         let _ = update(&mut state, Message::SourceEdited(action));
 
-        assert!(state.assembly.is_none(), "a source edit must invalidate the previous assembly");
+        assert!(
+            state.assembly.is_none(),
+            "a source edit must invalidate the previous assembly"
+        );
         assert!(state.errors.is_empty());
     }
 
@@ -831,30 +878,45 @@ mod tests {
         // can't be simplified away in either direction.
         let mut state = State::default();
         let _ = update(&mut state, Message::Assemble);
-        assert!(state.assembly.is_some(), "precondition: an assembly exists before the action");
+        assert!(
+            state.assembly.is_some(),
+            "precondition: an assembly exists before the action"
+        );
 
         let _ = update(
             &mut state,
             Message::SourceEdited(text_editor::Action::Move(text_editor::Motion::Right)),
         );
-        assert!(state.assembly.is_some(), "cursor motion must not invalidate the assembly");
+        assert!(
+            state.assembly.is_some(),
+            "cursor motion must not invalidate the assembly"
+        );
 
         let _ = update(
             &mut state,
             Message::SourceEdited(text_editor::Action::Click(iced::Point::ORIGIN)),
         );
-        assert!(state.assembly.is_some(), "a click must not invalidate the assembly");
+        assert!(
+            state.assembly.is_some(),
+            "a click must not invalidate the assembly"
+        );
     }
 
     #[test]
     fn changing_the_target_after_assembling_clears_the_stale_assembly() {
         let mut state = State::default();
         let _ = update(&mut state, Message::Assemble);
-        assert!(state.assembly.is_some(), "precondition: an assembly exists before the change");
+        assert!(
+            state.assembly.is_some(),
+            "precondition: an assembly exists before the change"
+        );
 
         let _ = update(&mut state, Message::TargetChanged("C100".into()));
 
-        assert!(state.assembly.is_none(), "a target change must invalidate the previous assembly");
+        assert!(
+            state.assembly.is_none(),
+            "a target change must invalidate the previous assembly"
+        );
         assert!(state.errors.is_empty());
     }
 
@@ -885,7 +947,11 @@ mod tests {
         state.assembly = Some(assemble("RTS", 0x0001).unwrap());
         let _ = update(&mut state, Message::Send);
         assert!(!state.sending);
-        assert!(state.status.text.contains("6510"), "status was: {}", state.status.text);
+        assert!(
+            state.status.text.contains("6510"),
+            "status was: {}",
+            state.status.text
+        );
     }
 
     #[test]
@@ -920,7 +986,10 @@ mod tests {
         state.host = "1.2.3.4".into();
         assert!(!state.has_bytes_to_send(), "nothing assembled yet");
         state.assembly = Some(assemble("RTS", 0xC000).unwrap());
-        assert!(state.has_bytes_to_send(), "RTS is one byte — Send must be offered");
+        assert!(
+            state.has_bytes_to_send(),
+            "RTS is one byte — Send must be offered"
+        );
     }
 
     #[test]
@@ -930,7 +999,11 @@ mod tests {
         assert!(state.assembly.is_none());
         let _ = update(&mut state, Message::Send);
         assert!(!state.sending);
-        assert!(state.status.text.contains("Nothing assembled"), "status was: {}", state.status.text);
+        assert!(
+            state.status.text.contains("Nothing assembled"),
+            "status was: {}",
+            state.status.text
+        );
     }
 
     #[test]
@@ -946,9 +1019,19 @@ mod tests {
             &mut state,
             Message::ConnectionTested(Ok(("0.1".to_string(), info))),
         );
-        assert!(!state.show_settings, "a successful connect must close the panel");
-        assert!(state.connection.is_none(), "the panel message must not linger");
-        assert_eq!(state.status.kind, StatusKind::Good, "status must render as good news");
+        assert!(
+            !state.show_settings,
+            "a successful connect must close the panel"
+        );
+        assert!(
+            state.connection.is_none(),
+            "the panel message must not linger"
+        );
+        assert_eq!(
+            state.status.kind,
+            StatusKind::Good,
+            "status must render as good news"
+        );
         assert!(
             state.status.text.contains("C64 Ultimate"),
             "status was: {}",
@@ -972,7 +1055,11 @@ mod tests {
             state.connection,
             Some(ConnectionStatus::Failed("Cannot reach the device".into()))
         );
-        assert_eq!(state.status.kind, StatusKind::Plain, "a failure is not good news");
+        assert_eq!(
+            state.status.kind,
+            StatusKind::Plain,
+            "a failure is not good news"
+        );
     }
 
     #[test]
@@ -1010,7 +1097,10 @@ mod tests {
 
         let _ = update(&mut state, Message::Clear);
 
-        assert!(state.source.text().trim().is_empty(), "editor must be empty");
+        assert!(
+            state.source.text().trim().is_empty(),
+            "editor must be empty"
+        );
         assert!(state.assembly.is_none(), "the listing must be cleared");
         assert!(state.errors.is_empty(), "the error pane must be cleared");
         assert_eq!(state.status.text, "Cleared");
@@ -1029,18 +1119,27 @@ mod tests {
     #[test]
     fn clear_is_only_offered_when_there_is_something_to_clear() {
         let mut state = State::default();
-        assert!(!state.has_anything_to_clear(), "a fresh session has nothing to clear");
+        assert!(
+            !state.has_anything_to_clear(),
+            "a fresh session has nothing to clear"
+        );
 
         state.source = text_editor::Content::with_text("RTS\n");
         assert!(state.has_anything_to_clear(), "editor text counts");
 
         let mut state = State::default();
         state.assembly = Some(assemble("RTS", 0xC000).unwrap());
-        assert!(state.has_anything_to_clear(), "a listing counts even with an empty editor");
+        assert!(
+            state.has_anything_to_clear(),
+            "a listing counts even with an empty editor"
+        );
 
         let mut state = State::default();
         state.errors = vec![crate::asm::AsmError::new(1, "boom")];
-        assert!(state.has_anything_to_clear(), "errors count even with an empty editor");
+        assert!(
+            state.has_anything_to_clear(),
+            "errors count even with an empty editor"
+        );
     }
 
     #[test]
@@ -1066,7 +1165,10 @@ mod tests {
         // becomes hunting for the gear icon.
         let (state, _task) = boot();
         assert!(state.show_settings, "settings must be open on launch");
-        assert!(state.host.is_empty(), "host must start blank — it is never persisted");
+        assert!(
+            state.host.is_empty(),
+            "host must start blank — it is never persisted"
+        );
     }
 
     #[test]
@@ -1076,7 +1178,11 @@ mod tests {
         assert!(state.host.trim().is_empty());
         let _ = update(&mut state, Message::Send);
         assert!(!state.sending);
-        assert!(state.status.text.contains("No host configured"), "status was: {}", state.status.text);
+        assert!(
+            state.status.text.contains("No host configured"),
+            "status was: {}",
+            state.status.text
+        );
     }
 
     #[test]
@@ -1090,7 +1196,11 @@ mod tests {
         // mutation is what's under test here.
         let _ = update(&mut state, Message::Send);
         assert!(state.sending);
-        assert!(state.status.text.contains("Sending"), "status was: {}", state.status.text);
+        assert!(
+            state.status.text.contains("Sending"),
+            "status was: {}",
+            state.status.text
+        );
     }
 
     // --- FIX-BEFORE-MERGE 6: the empty-host guard must cover MemRead too ---
@@ -1103,8 +1213,16 @@ mod tests {
         // A real request would come back as a `Task::perform(...)`, which
         // reports 1 work unit; on the guard path `update` must return early
         // with `Task::none()` (0 units) so no request is ever issued.
-        assert_eq!(task.units(), 0, "blank host must not produce a network task");
-        assert!(state.status.text.contains("No host configured"), "status was: {}", state.status.text);
+        assert_eq!(
+            task.units(),
+            0,
+            "blank host must not produce a network task"
+        );
+        assert!(
+            state.status.text.contains("No host configured"),
+            "status was: {}",
+            state.status.text
+        );
         assert!(state.mem_rows.is_empty());
     }
 }

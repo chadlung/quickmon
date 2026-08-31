@@ -8,11 +8,18 @@ pub fn parse_addr(s: &str) -> Option<u16> {
     if digits.is_empty() || !digits.chars().all(|c| c.is_ascii_hexdigit()) {
         return None;
     }
-    u32::from_str_radix(digits, 16).ok().filter(|v| *v <= 0xFFFF).map(|v| v as u16)
+    u32::from_str_radix(digits, 16)
+        .ok()
+        .filter(|v| *v <= 0xFFFF)
+        .map(|v| v as u16)
 }
 
 pub fn format_bytes(bytes: &[u8]) -> String {
-    bytes.iter().map(|b| format!("{b:02X}")).collect::<Vec<_>>().join(" ")
+    bytes
+        .iter()
+        .map(|b| format!("{b:02X}"))
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 pub fn hex_dump(address: u16, bytes: &[u8]) -> Vec<String> {
@@ -21,10 +28,20 @@ pub fn hex_dump(address: u16, bytes: &[u8]) -> Vec<String> {
         .enumerate()
         .map(|(row, chunk)| {
             let addr = address.wrapping_add((row * 16) as u16);
-            let hex = chunk.iter().map(|b| format!("{b:02X}")).collect::<Vec<_>>().join(" ");
+            let hex = chunk
+                .iter()
+                .map(|b| format!("{b:02X}"))
+                .collect::<Vec<_>>()
+                .join(" ");
             let ascii: String = chunk
                 .iter()
-                .map(|b| if (0x20..0x7F).contains(b) { *b as char } else { '.' })
+                .map(|b| {
+                    if (0x20..0x7F).contains(b) {
+                        *b as char
+                    } else {
+                        '.'
+                    }
+                })
                 .collect();
             format!("{addr:04X}  {hex:<47}  |{ascii}|")
         })

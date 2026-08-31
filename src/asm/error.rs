@@ -7,7 +7,10 @@ pub struct AsmError {
 
 impl AsmError {
     pub fn new(line: usize, message: impl Into<String>) -> Self {
-        Self { line, message: message.into() }
+        Self {
+            line,
+            message: message.into(),
+        }
     }
 }
 

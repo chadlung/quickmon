@@ -1,30 +1,123 @@
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Mnemonic {
-    Adc, And, Asl, Bcc, Bcs, Beq, Bit, Bmi, Bne, Bpl, Brk, Bvc, Bvs,
-    Clc, Cld, Cli, Clv, Cmp, Cpx, Cpy, Dec, Dex, Dey, Eor, Inc, Inx,
-    Iny, Jmp, Jsr, Lda, Ldx, Ldy, Lsr, Nop, Ora, Pha, Php, Pla, Plp,
-    Rol, Ror, Rti, Rts, Sbc, Sec, Sed, Sei, Sta, Stx, Sty, Tax, Tay,
-    Tsx, Txa, Txs, Tya,
+    Adc,
+    And,
+    Asl,
+    Bcc,
+    Bcs,
+    Beq,
+    Bit,
+    Bmi,
+    Bne,
+    Bpl,
+    Brk,
+    Bvc,
+    Bvs,
+    Clc,
+    Cld,
+    Cli,
+    Clv,
+    Cmp,
+    Cpx,
+    Cpy,
+    Dec,
+    Dex,
+    Dey,
+    Eor,
+    Inc,
+    Inx,
+    Iny,
+    Jmp,
+    Jsr,
+    Lda,
+    Ldx,
+    Ldy,
+    Lsr,
+    Nop,
+    Ora,
+    Pha,
+    Php,
+    Pla,
+    Plp,
+    Rol,
+    Ror,
+    Rti,
+    Rts,
+    Sbc,
+    Sec,
+    Sed,
+    Sei,
+    Sta,
+    Stx,
+    Sty,
+    Tax,
+    Tay,
+    Tsx,
+    Txa,
+    Txs,
+    Tya,
 }
 
 impl Mnemonic {
     pub fn parse(s: &str) -> Option<Self> {
         use Mnemonic::*;
         Some(match s.to_ascii_uppercase().as_str() {
-            "ADC" => Adc, "AND" => And, "ASL" => Asl, "BCC" => Bcc,
-            "BCS" => Bcs, "BEQ" => Beq, "BIT" => Bit, "BMI" => Bmi,
-            "BNE" => Bne, "BPL" => Bpl, "BRK" => Brk, "BVC" => Bvc,
-            "BVS" => Bvs, "CLC" => Clc, "CLD" => Cld, "CLI" => Cli,
-            "CLV" => Clv, "CMP" => Cmp, "CPX" => Cpx, "CPY" => Cpy,
-            "DEC" => Dec, "DEX" => Dex, "DEY" => Dey, "EOR" => Eor,
-            "INC" => Inc, "INX" => Inx, "INY" => Iny, "JMP" => Jmp,
-            "JSR" => Jsr, "LDA" => Lda, "LDX" => Ldx, "LDY" => Ldy,
-            "LSR" => Lsr, "NOP" => Nop, "ORA" => Ora, "PHA" => Pha,
-            "PHP" => Php, "PLA" => Pla, "PLP" => Plp, "ROL" => Rol,
-            "ROR" => Ror, "RTI" => Rti, "RTS" => Rts, "SBC" => Sbc,
-            "SEC" => Sec, "SED" => Sed, "SEI" => Sei, "STA" => Sta,
-            "STX" => Stx, "STY" => Sty, "TAX" => Tax, "TAY" => Tay,
-            "TSX" => Tsx, "TXA" => Txa, "TXS" => Txs, "TYA" => Tya,
+            "ADC" => Adc,
+            "AND" => And,
+            "ASL" => Asl,
+            "BCC" => Bcc,
+            "BCS" => Bcs,
+            "BEQ" => Beq,
+            "BIT" => Bit,
+            "BMI" => Bmi,
+            "BNE" => Bne,
+            "BPL" => Bpl,
+            "BRK" => Brk,
+            "BVC" => Bvc,
+            "BVS" => Bvs,
+            "CLC" => Clc,
+            "CLD" => Cld,
+            "CLI" => Cli,
+            "CLV" => Clv,
+            "CMP" => Cmp,
+            "CPX" => Cpx,
+            "CPY" => Cpy,
+            "DEC" => Dec,
+            "DEX" => Dex,
+            "DEY" => Dey,
+            "EOR" => Eor,
+            "INC" => Inc,
+            "INX" => Inx,
+            "INY" => Iny,
+            "JMP" => Jmp,
+            "JSR" => Jsr,
+            "LDA" => Lda,
+            "LDX" => Ldx,
+            "LDY" => Ldy,
+            "LSR" => Lsr,
+            "NOP" => Nop,
+            "ORA" => Ora,
+            "PHA" => Pha,
+            "PHP" => Php,
+            "PLA" => Pla,
+            "PLP" => Plp,
+            "ROL" => Rol,
+            "ROR" => Ror,
+            "RTI" => Rti,
+            "RTS" => Rts,
+            "SBC" => Sbc,
+            "SEC" => Sec,
+            "SED" => Sed,
+            "SEI" => Sei,
+            "STA" => Sta,
+            "STX" => Stx,
+            "STY" => Sty,
+            "TAX" => Tax,
+            "TAY" => Tay,
+            "TSX" => Tsx,
+            "TXA" => Txa,
+            "TXS" => Txs,
+            "TYA" => Tya,
             _ => return None,
         })
     }
@@ -58,8 +151,8 @@ impl AddrMode {
         match self {
             Implied | Accumulator => 0,
             Absolute | AbsoluteX | AbsoluteY | Indirect => 2,
-            Immediate | ZeroPage | ZeroPageX | ZeroPageY
-            | IndexedIndirect | IndirectIndexed | Relative => 1,
+            Immediate | ZeroPage | ZeroPageX | ZeroPageY | IndexedIndirect | IndirectIndexed
+            | Relative => 1,
         }
     }
 
@@ -86,29 +179,29 @@ pub fn opcode(m: Mnemonic, mode: AddrMode) -> Option<u8> {
 // "Transcription notes", for the full list.
 pub static OPCODES: &[(Mnemonic, AddrMode, u8)] = &[
     // ADC
-    (Mnemonic::Adc, AddrMode::Immediate,       0x69),
-    (Mnemonic::Adc, AddrMode::ZeroPage,        0x65),
-    (Mnemonic::Adc, AddrMode::ZeroPageX,       0x75),
-    (Mnemonic::Adc, AddrMode::Absolute,        0x6D), // file says 0x60 (typo); c64-wiki opcode matrix confirms 0x6D (0x60 is RTS)
-    (Mnemonic::Adc, AddrMode::AbsoluteX,       0x7D), // file says 0x70 (typo); c64-wiki opcode matrix confirms 0x7D (0x70 is BVS)
-    (Mnemonic::Adc, AddrMode::AbsoluteY,       0x79),
+    (Mnemonic::Adc, AddrMode::Immediate, 0x69),
+    (Mnemonic::Adc, AddrMode::ZeroPage, 0x65),
+    (Mnemonic::Adc, AddrMode::ZeroPageX, 0x75),
+    (Mnemonic::Adc, AddrMode::Absolute, 0x6D), // file says 0x60 (typo); c64-wiki opcode matrix confirms 0x6D (0x60 is RTS)
+    (Mnemonic::Adc, AddrMode::AbsoluteX, 0x7D), // file says 0x70 (typo); c64-wiki opcode matrix confirms 0x7D (0x70 is BVS)
+    (Mnemonic::Adc, AddrMode::AbsoluteY, 0x79),
     (Mnemonic::Adc, AddrMode::IndexedIndirect, 0x61),
     (Mnemonic::Adc, AddrMode::IndirectIndexed, 0x71),
     // AND
-    (Mnemonic::And, AddrMode::Immediate,       0x29),
-    (Mnemonic::And, AddrMode::ZeroPage,        0x25),
-    (Mnemonic::And, AddrMode::ZeroPageX,       0x35),
-    (Mnemonic::And, AddrMode::Absolute,        0x2D),
-    (Mnemonic::And, AddrMode::AbsoluteX,       0x3D),
-    (Mnemonic::And, AddrMode::AbsoluteY,       0x39),
+    (Mnemonic::And, AddrMode::Immediate, 0x29),
+    (Mnemonic::And, AddrMode::ZeroPage, 0x25),
+    (Mnemonic::And, AddrMode::ZeroPageX, 0x35),
+    (Mnemonic::And, AddrMode::Absolute, 0x2D),
+    (Mnemonic::And, AddrMode::AbsoluteX, 0x3D),
+    (Mnemonic::And, AddrMode::AbsoluteY, 0x39),
     (Mnemonic::And, AddrMode::IndexedIndirect, 0x21),
     (Mnemonic::And, AddrMode::IndirectIndexed, 0x31),
     // ASL
     (Mnemonic::Asl, AddrMode::Accumulator, 0x0A),
-    (Mnemonic::Asl, AddrMode::ZeroPage,    0x06),
-    (Mnemonic::Asl, AddrMode::ZeroPageX,   0x16),
-    (Mnemonic::Asl, AddrMode::Absolute,    0x0E),
-    (Mnemonic::Asl, AddrMode::AbsoluteX,   0x1E),
+    (Mnemonic::Asl, AddrMode::ZeroPage, 0x06),
+    (Mnemonic::Asl, AddrMode::ZeroPageX, 0x16),
+    (Mnemonic::Asl, AddrMode::Absolute, 0x0E),
+    (Mnemonic::Asl, AddrMode::AbsoluteX, 0x1E),
     // BCC
     (Mnemonic::Bcc, AddrMode::Relative, 0x90),
     // BCS
@@ -139,44 +232,44 @@ pub static OPCODES: &[(Mnemonic, AddrMode, u8)] = &[
     // CLV
     (Mnemonic::Clv, AddrMode::Implied, 0xB8),
     // CMP
-    (Mnemonic::Cmp, AddrMode::Immediate,       0xC9),
-    (Mnemonic::Cmp, AddrMode::ZeroPage,        0xC5),
-    (Mnemonic::Cmp, AddrMode::ZeroPageX,       0xD5),
-    (Mnemonic::Cmp, AddrMode::Absolute,        0xCD),
-    (Mnemonic::Cmp, AddrMode::AbsoluteX,       0xDD),
-    (Mnemonic::Cmp, AddrMode::AbsoluteY,       0xD9),
+    (Mnemonic::Cmp, AddrMode::Immediate, 0xC9),
+    (Mnemonic::Cmp, AddrMode::ZeroPage, 0xC5),
+    (Mnemonic::Cmp, AddrMode::ZeroPageX, 0xD5),
+    (Mnemonic::Cmp, AddrMode::Absolute, 0xCD),
+    (Mnemonic::Cmp, AddrMode::AbsoluteX, 0xDD),
+    (Mnemonic::Cmp, AddrMode::AbsoluteY, 0xD9),
     (Mnemonic::Cmp, AddrMode::IndexedIndirect, 0xC1),
     (Mnemonic::Cmp, AddrMode::IndirectIndexed, 0xD1),
     // CPX
     (Mnemonic::Cpx, AddrMode::Immediate, 0xE0),
-    (Mnemonic::Cpx, AddrMode::ZeroPage,  0xE4),
-    (Mnemonic::Cpx, AddrMode::Absolute,  0xEC),
+    (Mnemonic::Cpx, AddrMode::ZeroPage, 0xE4),
+    (Mnemonic::Cpx, AddrMode::Absolute, 0xEC),
     // CPY
     (Mnemonic::Cpy, AddrMode::Immediate, 0xC0),
-    (Mnemonic::Cpy, AddrMode::ZeroPage,  0xC4),
-    (Mnemonic::Cpy, AddrMode::Absolute,  0xCC),
+    (Mnemonic::Cpy, AddrMode::ZeroPage, 0xC4),
+    (Mnemonic::Cpy, AddrMode::Absolute, 0xCC),
     // DEC
-    (Mnemonic::Dec, AddrMode::ZeroPage,  0xC6),
+    (Mnemonic::Dec, AddrMode::ZeroPage, 0xC6),
     (Mnemonic::Dec, AddrMode::ZeroPageX, 0xD6),
-    (Mnemonic::Dec, AddrMode::Absolute,  0xCE),
+    (Mnemonic::Dec, AddrMode::Absolute, 0xCE),
     (Mnemonic::Dec, AddrMode::AbsoluteX, 0xDE),
     // DEX
     (Mnemonic::Dex, AddrMode::Implied, 0xCA),
     // DEY
     (Mnemonic::Dey, AddrMode::Implied, 0x88),
     // EOR
-    (Mnemonic::Eor, AddrMode::Immediate,       0x49),
-    (Mnemonic::Eor, AddrMode::ZeroPage,        0x45),
-    (Mnemonic::Eor, AddrMode::ZeroPageX,       0x55),
-    (Mnemonic::Eor, AddrMode::Absolute,        0x4D), // file says 0x40 (typo); c64-wiki opcode matrix confirms 0x4D (0x40 is RTI)
-    (Mnemonic::Eor, AddrMode::AbsoluteX,       0x5D), // file says 0x50 (typo); c64-wiki opcode matrix confirms 0x5D (0x50 is BVC)
-    (Mnemonic::Eor, AddrMode::AbsoluteY,       0x59),
+    (Mnemonic::Eor, AddrMode::Immediate, 0x49),
+    (Mnemonic::Eor, AddrMode::ZeroPage, 0x45),
+    (Mnemonic::Eor, AddrMode::ZeroPageX, 0x55),
+    (Mnemonic::Eor, AddrMode::Absolute, 0x4D), // file says 0x40 (typo); c64-wiki opcode matrix confirms 0x4D (0x40 is RTI)
+    (Mnemonic::Eor, AddrMode::AbsoluteX, 0x5D), // file says 0x50 (typo); c64-wiki opcode matrix confirms 0x5D (0x50 is BVC)
+    (Mnemonic::Eor, AddrMode::AbsoluteY, 0x59),
     (Mnemonic::Eor, AddrMode::IndexedIndirect, 0x41),
     (Mnemonic::Eor, AddrMode::IndirectIndexed, 0x51),
     // INC
-    (Mnemonic::Inc, AddrMode::ZeroPage,  0xE6),
+    (Mnemonic::Inc, AddrMode::ZeroPage, 0xE6),
     (Mnemonic::Inc, AddrMode::ZeroPageX, 0xF6),
-    (Mnemonic::Inc, AddrMode::Absolute,  0xEE),
+    (Mnemonic::Inc, AddrMode::Absolute, 0xEE),
     (Mnemonic::Inc, AddrMode::AbsoluteX, 0xFE),
     // INX
     (Mnemonic::Inx, AddrMode::Implied, 0xE8),
@@ -188,41 +281,41 @@ pub static OPCODES: &[(Mnemonic, AddrMode, u8)] = &[
     // JSR
     (Mnemonic::Jsr, AddrMode::Absolute, 0x20),
     // LDA
-    (Mnemonic::Lda, AddrMode::Immediate,       0xA9),
-    (Mnemonic::Lda, AddrMode::ZeroPage,        0xA5),
-    (Mnemonic::Lda, AddrMode::ZeroPageX,       0xB5),
-    (Mnemonic::Lda, AddrMode::Absolute,        0xAD),
-    (Mnemonic::Lda, AddrMode::AbsoluteX,       0xBD),
-    (Mnemonic::Lda, AddrMode::AbsoluteY,       0xB9),
+    (Mnemonic::Lda, AddrMode::Immediate, 0xA9),
+    (Mnemonic::Lda, AddrMode::ZeroPage, 0xA5),
+    (Mnemonic::Lda, AddrMode::ZeroPageX, 0xB5),
+    (Mnemonic::Lda, AddrMode::Absolute, 0xAD),
+    (Mnemonic::Lda, AddrMode::AbsoluteX, 0xBD),
+    (Mnemonic::Lda, AddrMode::AbsoluteY, 0xB9),
     (Mnemonic::Lda, AddrMode::IndexedIndirect, 0xA1),
     (Mnemonic::Lda, AddrMode::IndirectIndexed, 0xB1),
     // LDX
     (Mnemonic::Ldx, AddrMode::Immediate, 0xA2),
-    (Mnemonic::Ldx, AddrMode::ZeroPage,  0xA6),
+    (Mnemonic::Ldx, AddrMode::ZeroPage, 0xA6),
     (Mnemonic::Ldx, AddrMode::ZeroPageY, 0xB6),
-    (Mnemonic::Ldx, AddrMode::Absolute,  0xAE),
+    (Mnemonic::Ldx, AddrMode::Absolute, 0xAE),
     (Mnemonic::Ldx, AddrMode::AbsoluteY, 0xBE),
     // LDY
     (Mnemonic::Ldy, AddrMode::Immediate, 0xA0),
-    (Mnemonic::Ldy, AddrMode::ZeroPage,  0xA4),
+    (Mnemonic::Ldy, AddrMode::ZeroPage, 0xA4),
     (Mnemonic::Ldy, AddrMode::ZeroPageX, 0xB4),
-    (Mnemonic::Ldy, AddrMode::Absolute,  0xAC),
+    (Mnemonic::Ldy, AddrMode::Absolute, 0xAC),
     (Mnemonic::Ldy, AddrMode::AbsoluteX, 0xBC),
     // LSR
     (Mnemonic::Lsr, AddrMode::Accumulator, 0x4A),
-    (Mnemonic::Lsr, AddrMode::ZeroPage,    0x46),
-    (Mnemonic::Lsr, AddrMode::ZeroPageX,   0x56),
-    (Mnemonic::Lsr, AddrMode::Absolute,    0x4E),
-    (Mnemonic::Lsr, AddrMode::AbsoluteX,   0x5E),
+    (Mnemonic::Lsr, AddrMode::ZeroPage, 0x46),
+    (Mnemonic::Lsr, AddrMode::ZeroPageX, 0x56),
+    (Mnemonic::Lsr, AddrMode::Absolute, 0x4E),
+    (Mnemonic::Lsr, AddrMode::AbsoluteX, 0x5E),
     // NOP
     (Mnemonic::Nop, AddrMode::Implied, 0xEA),
     // ORA
-    (Mnemonic::Ora, AddrMode::Immediate,       0x09),
-    (Mnemonic::Ora, AddrMode::ZeroPage,        0x05),
-    (Mnemonic::Ora, AddrMode::ZeroPageX,       0x15),
-    (Mnemonic::Ora, AddrMode::Absolute,        0x0D),
-    (Mnemonic::Ora, AddrMode::AbsoluteX,       0x1D), // file says 0x10 (typo); c64-wiki opcode matrix confirms 0x1D (0x10 is BPL)
-    (Mnemonic::Ora, AddrMode::AbsoluteY,       0x19),
+    (Mnemonic::Ora, AddrMode::Immediate, 0x09),
+    (Mnemonic::Ora, AddrMode::ZeroPage, 0x05),
+    (Mnemonic::Ora, AddrMode::ZeroPageX, 0x15),
+    (Mnemonic::Ora, AddrMode::Absolute, 0x0D),
+    (Mnemonic::Ora, AddrMode::AbsoluteX, 0x1D), // file says 0x10 (typo); c64-wiki opcode matrix confirms 0x1D (0x10 is BPL)
+    (Mnemonic::Ora, AddrMode::AbsoluteY, 0x19),
     (Mnemonic::Ora, AddrMode::IndexedIndirect, 0x01),
     (Mnemonic::Ora, AddrMode::IndirectIndexed, 0x11),
     // PHA
@@ -235,27 +328,27 @@ pub static OPCODES: &[(Mnemonic, AddrMode, u8)] = &[
     (Mnemonic::Plp, AddrMode::Implied, 0x28),
     // ROL
     (Mnemonic::Rol, AddrMode::Accumulator, 0x2A),
-    (Mnemonic::Rol, AddrMode::ZeroPage,    0x26),
-    (Mnemonic::Rol, AddrMode::ZeroPageX,   0x36),
-    (Mnemonic::Rol, AddrMode::Absolute,    0x2E),
-    (Mnemonic::Rol, AddrMode::AbsoluteX,   0x3E),
+    (Mnemonic::Rol, AddrMode::ZeroPage, 0x26),
+    (Mnemonic::Rol, AddrMode::ZeroPageX, 0x36),
+    (Mnemonic::Rol, AddrMode::Absolute, 0x2E),
+    (Mnemonic::Rol, AddrMode::AbsoluteX, 0x3E),
     // ROR
     (Mnemonic::Ror, AddrMode::Accumulator, 0x6A),
-    (Mnemonic::Ror, AddrMode::ZeroPage,    0x66),
-    (Mnemonic::Ror, AddrMode::ZeroPageX,   0x76),
-    (Mnemonic::Ror, AddrMode::Absolute,    0x6E),
-    (Mnemonic::Ror, AddrMode::AbsoluteX,   0x7E),
+    (Mnemonic::Ror, AddrMode::ZeroPage, 0x66),
+    (Mnemonic::Ror, AddrMode::ZeroPageX, 0x76),
+    (Mnemonic::Ror, AddrMode::Absolute, 0x6E),
+    (Mnemonic::Ror, AddrMode::AbsoluteX, 0x7E),
     // RTI
     (Mnemonic::Rti, AddrMode::Implied, 0x40), // file says 0x4D (typo); c64-wiki opcode matrix confirms 0x40 (0x4D is EOR Absolute)
     // RTS
     (Mnemonic::Rts, AddrMode::Implied, 0x60),
     // SBC
-    (Mnemonic::Sbc, AddrMode::Immediate,       0xE9),
-    (Mnemonic::Sbc, AddrMode::ZeroPage,        0xE5),
-    (Mnemonic::Sbc, AddrMode::ZeroPageX,       0xF5),
-    (Mnemonic::Sbc, AddrMode::Absolute,        0xED),
-    (Mnemonic::Sbc, AddrMode::AbsoluteX,       0xFD),
-    (Mnemonic::Sbc, AddrMode::AbsoluteY,       0xF9),
+    (Mnemonic::Sbc, AddrMode::Immediate, 0xE9),
+    (Mnemonic::Sbc, AddrMode::ZeroPage, 0xE5),
+    (Mnemonic::Sbc, AddrMode::ZeroPageX, 0xF5),
+    (Mnemonic::Sbc, AddrMode::Absolute, 0xED),
+    (Mnemonic::Sbc, AddrMode::AbsoluteX, 0xFD),
+    (Mnemonic::Sbc, AddrMode::AbsoluteY, 0xF9),
     (Mnemonic::Sbc, AddrMode::IndexedIndirect, 0xE1),
     (Mnemonic::Sbc, AddrMode::IndirectIndexed, 0xF1),
     // SEC
@@ -265,21 +358,21 @@ pub static OPCODES: &[(Mnemonic, AddrMode, u8)] = &[
     // SEI
     (Mnemonic::Sei, AddrMode::Implied, 0x78),
     // STA
-    (Mnemonic::Sta, AddrMode::ZeroPage,        0x85),
-    (Mnemonic::Sta, AddrMode::ZeroPageX,       0x95),
-    (Mnemonic::Sta, AddrMode::Absolute,        0x8D), // file says 0x80 (typo); confirmed 0x8D by the hardware-verified bytes `8D 00 04` in tests/golden.rs (0x80 is an illegal/"Future Expansion" opcode, not STA)
-    (Mnemonic::Sta, AddrMode::AbsoluteX,       0x9D), // file says 0x90 (typo); c64-wiki opcode matrix confirms 0x9D (0x90 is BCC)
-    (Mnemonic::Sta, AddrMode::AbsoluteY,       0x99),
+    (Mnemonic::Sta, AddrMode::ZeroPage, 0x85),
+    (Mnemonic::Sta, AddrMode::ZeroPageX, 0x95),
+    (Mnemonic::Sta, AddrMode::Absolute, 0x8D), // file says 0x80 (typo); confirmed 0x8D by the hardware-verified bytes `8D 00 04` in tests/golden.rs (0x80 is an illegal/"Future Expansion" opcode, not STA)
+    (Mnemonic::Sta, AddrMode::AbsoluteX, 0x9D), // file says 0x90 (typo); c64-wiki opcode matrix confirms 0x9D (0x90 is BCC)
+    (Mnemonic::Sta, AddrMode::AbsoluteY, 0x99),
     (Mnemonic::Sta, AddrMode::IndexedIndirect, 0x81),
     (Mnemonic::Sta, AddrMode::IndirectIndexed, 0x91),
     // STX (no Absolute,Y — see brief edge-case note)
-    (Mnemonic::Stx, AddrMode::ZeroPage,  0x86),
+    (Mnemonic::Stx, AddrMode::ZeroPage, 0x86),
     (Mnemonic::Stx, AddrMode::ZeroPageY, 0x96),
-    (Mnemonic::Stx, AddrMode::Absolute,  0x8E),
+    (Mnemonic::Stx, AddrMode::Absolute, 0x8E),
     // STY (no Absolute,X — see brief edge-case note)
-    (Mnemonic::Sty, AddrMode::ZeroPage,  0x84),
+    (Mnemonic::Sty, AddrMode::ZeroPage, 0x84),
     (Mnemonic::Sty, AddrMode::ZeroPageX, 0x94),
-    (Mnemonic::Sty, AddrMode::Absolute,  0x8C),
+    (Mnemonic::Sty, AddrMode::Absolute, 0x8C),
     // TAX
     (Mnemonic::Tax, AddrMode::Implied, 0xAA),
     // TAY
@@ -357,7 +450,10 @@ mod tests {
     fn table_has_no_duplicate_entries() {
         let mut seen = std::collections::HashSet::new();
         for (m, mode, _) in OPCODES {
-            assert!(seen.insert((*m, *mode)), "duplicate entry for {m:?} {mode:?}");
+            assert!(
+                seen.insert((*m, *mode)),
+                "duplicate entry for {m:?} {mode:?}"
+            );
         }
     }
 
@@ -376,7 +472,10 @@ mod tests {
         // when the source named another, with no other detector in the repo.
         let mut seen = std::collections::HashSet::new();
         for (m, mode, op) in OPCODES {
-            assert!(seen.insert(*op), "opcode byte {op:#04X} used more than once (last: {m:?} {mode:?})");
+            assert!(
+                seen.insert(*op),
+                "opcode byte {op:#04X} used more than once (last: {m:?} {mode:?})"
+            );
         }
         assert_eq!(seen.len(), 151);
     }
