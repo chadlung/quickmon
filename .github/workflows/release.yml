@@ -75,7 +75,11 @@ jobs:
       - name: Test
         run: cargo test --locked
 
+      # `shell: bash` is required, not cosmetic: Windows runners default to
+      # PowerShell, where "$TARGET" expands to nothing rather than to the
+      # environment variable, and cargo then fails with "target was empty".
       - name: Build
+        shell: bash
         env:
           TARGET: ${{ matrix.target }}
         run: cargo build --release --locked --target "$TARGET"
