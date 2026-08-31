@@ -111,22 +111,22 @@ pub fn encode(lines: &[Line], org: u16) -> Result<Assembly, Vec<AsmError>> {
                     ));
                     None
                 } else {
-                    let initial = pick_initial(&legal, *width);
-                    // `.w` must force absolute or fail. When the widest legal mode
-                    // still takes a one-byte operand there is no absolute form to
-                    // widen to, and silently emitting the narrow encoding would
-                    // defeat the suffix's purpose: deliberate control over
-                    // instruction length and cycle timing.
-                    if *width == Width::Word && initial.operand_len() == 1 {
-                        errors.push(AsmError::new(
-                            line.number,
-                            format!(
-                                "{} has no wider form for this operand, so .w cannot be honoured",
-                                name_of(*mnemonic)
-                            ),
-                        ));
+                    match pick_initial(&legal, *width) {
+                        Ok(initial) => Some(initial),
+                        Err(class) => {
+                            errors.push(AsmError::new(
+                                line.number,
+                                format!(
+                                    "{} with {} has no {} form, so {} cannot be honoured",
+                                    name_of(*mnemonic),
+                                    operand_form(operand),
+                                    class.description(),
+                                    class.suffix()
+                                ),
+                            ));
+                            None
+                        }
                     }
-                    Some(initial)
                 }
             }
             _ => None,
@@ -184,11 +184,57 @@ pub fn encode(lines: &[Line], org: u16) -> Result<Assembly, Vec<AsmError>> {
     emit(lines, &chosen, org, &symbols)
 }
 
-fn pick_initial(legal: &[AddrMode], width: Width) -> AddrMode {
-    match width {
-        Width::Auto | Width::Byte => legal[0],
-        Width::Word => legal[legal.len() - 1],
+/// The class of addressing a width suffix selects.
+///
+/// `.b` and `.w` name an *address width*, not merely an operand byte count.
+/// Immediate, implied, accumulator, relative, and both indirect-indexed forms
+/// carry no address, so neither suffix applies to them — previously both were
+/// silently ignored there, and `LDA.b #$10`, `BNE.w target` and `RTS.w` all
+/// assembled as though the suffix had not been written.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum WidthClass {
+    Byte,
+    Word,
+}
+
+impl WidthClass {
+    fn description(self) -> &'static str {
+        match self {
+            WidthClass::Byte => "zero page",
+            WidthClass::Word => "absolute",
+        }
     }
+
+    fn suffix(self) -> &'static str {
+        match self {
+            WidthClass::Byte => ".b",
+            WidthClass::Word => ".w",
+        }
+    }
+
+    fn accepts(self, mode: AddrMode) -> bool {
+        use AddrMode::*;
+        match self {
+            WidthClass::Byte => matches!(mode, ZeroPage | ZeroPageX | ZeroPageY),
+            WidthClass::Word => matches!(mode, Absolute | AbsoluteX | AbsoluteY | Indirect),
+        }
+    }
+}
+
+/// Picks the starting mode. Without a suffix this is the narrowest legal mode,
+/// which the fixpoint loop may later widen. With a suffix it must be a mode of
+/// the requested class, or the suffix cannot be honoured and assembly fails.
+fn pick_initial(legal: &[AddrMode], width: Width) -> Result<AddrMode, WidthClass> {
+    let class = match width {
+        Width::Auto => return Ok(legal[0]),
+        Width::Byte => WidthClass::Byte,
+        Width::Word => WidthClass::Word,
+    };
+    legal
+        .iter()
+        .copied()
+        .find(|m| class.accepts(*m))
+        .ok_or(class)
 }
 
 fn stmt_len(line: &Line, mode: Option<AddrMode>) -> usize {
@@ -543,6 +589,56 @@ x: .byte $02";
     fn width_suffix_forces_encoding() {
         assert_eq!(bytes("LDA.b $10", 0xC000), vec![0xA5, 0x10]);
         assert_eq!(bytes("LDA.w $10", 0xC000), vec![0xAD, 0x10, 0x00]);
+    }
+
+    #[test]
+    fn width_suffixes_select_an_address_width_or_fail() {
+        // Every mandatory case from the hardening spec's section 1.3. `.b` and
+        // `.w` name an address width, not an operand byte count, so they apply
+        // only to zero-page and absolute modes respectively. Previously the
+        // suffix was silently ignored wherever it did not fit, which is the
+        // worst outcome for a feature whose entire purpose is deliberate
+        // control over instruction length and cycle timing.
+        assert_eq!(bytes("LDA.b $10", 0xC000), vec![0xA5, 0x10]);
+        assert_eq!(bytes("LDA.w $10", 0xC000), vec![0xAD, 0x10, 0x00]);
+        assert_eq!(bytes("JMP.w $10", 0xC000), vec![0x4C, 0x10, 0x00]);
+        // Indirect carries a 16-bit address, so `.w` applies to it.
+        assert_eq!(bytes("JMP.w ($10)", 0xC000), vec![0x6C, 0x10, 0x00]);
+        assert_eq!(bytes("STX.b $10,Y", 0xC000), vec![0x96, 0x10]);
+
+        for (src, want) in [
+            // The mnemonic simply lacks that form.
+            ("LDA.b $1234", "zero page"),
+            ("JMP.b $10", "no zero page form"),
+            ("STX.w $10,Y", "no absolute form"),
+            // The operand form carries no address at all, so neither suffix
+            // can apply. All four of these used to assemble silently.
+            ("LDA.b #$10", "no zero page form"),
+            ("BNE.b t", "no zero page form"),
+            ("BNE.w t", "no absolute form"),
+            ("RTS.b", "no zero page form"),
+            ("RTS.w", "no absolute form"),
+        ] {
+            let errs = errors(src, 0xC000);
+            assert_eq!(errs[0].line, 1, "{src}");
+            assert!(
+                errs[0].message.contains(want),
+                "{src} gave: {}",
+                errs[0].message
+            );
+        }
+    }
+
+    #[test]
+    fn automatic_width_selection_is_unaffected_by_the_strict_suffix_rules() {
+        // The no-suffix path must still start narrow and let the fixpoint
+        // widen, including the cascade.
+        assert_eq!(bytes("LDA $10", 0xC000), vec![0xA5, 0x10]);
+        assert_eq!(bytes("LDA $1234", 0xC000), vec![0xAD, 0x34, 0x12]);
+        assert_eq!(
+            bytes("LDA x\nLDA y\ny: .byte $01\nx: .byte $02", 0x00FB),
+            vec![0xAD, 0x02, 0x01, 0xAD, 0x01, 0x01, 0x01, 0x02]
+        );
     }
 
     #[test]
