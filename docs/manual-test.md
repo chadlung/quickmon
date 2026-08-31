@@ -83,6 +83,26 @@ VIC-II register, and read Color RAM (`$D800`+). A difference must appear as a
 neutral `Read-back mismatch`, and Color RAM's upper nibble must be shown raw
 rather than masked.
 
+## Step 6b: Character modes against real screen RAM
+
+Do this while `HI` from Step 6 is still on the screen — real screen RAM is the only place the three character modes can be told apart with certainty. (If Step 6a disturbed the display, re-run Step 6 first.)
+
+In the memory viewer, enter address `0400` and length `16`, then click **Read**.
+
+**Expected bytes (first two):** `08 09` — the screen codes for `H` and `I`. The rest of the row is `20` (blank screen) unless something else is on the top line.
+
+Now work the dropdown beside **Read**. Nothing should go out to the device — the dump redraws instantly, and the status line still reads `Read 16 bytes from $0400`.
+
+| Mode | Expected character column |
+|---|---|
+| **Screen codes** | `HI` followed by spaces — the correct reading |
+| **ASCII** | `..` followed by spaces — `$08`/`$09` are control codes |
+| **PETSCII** | `..` followed by spaces — same reason |
+
+**Expected in every mode:** the address column and the hex column are byte-for-byte identical. Only the text between the `|` bars changes. If the hex column changes when you switch modes, that is a defect — stop and report it.
+
+Optional, if you want to see the other half: on the C64, type `PRINT CHR$(147)` then `POKE 1024,1:POKE 55296,1` — screen RAM `$0400` now holds `$01`, which is `A` in **Screen codes** mode and a placeholder in the other two.
+
 ## Step 7: Regression check on the sizing loop
 
 This step confirms that the assembler correctly chooses absolute vs. zero-page addressing based on the origin address.

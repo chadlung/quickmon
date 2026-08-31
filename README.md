@@ -18,7 +18,8 @@ confirmed present at the address you asked for — you start them yourself with
   on an exact, full-length match; any difference is reported neutrally as a
   `Read-back mismatch` with the address and both bytes.
 - **Reads memory** back off the machine as a hex dump, so you can look at screen
-  RAM, sprite data, or the routine you just sent.
+  RAM, sprite data, or the routine you just sent. The character column reads as
+  **ASCII**, **PETSCII**, or **screen codes**, whichever you pick.
 
 ## Requirements
 
@@ -137,6 +138,44 @@ C000  A9 93 20 D2 FF A9 08 8D 00 04 A9 09 8D 01 04 A9  |... .............|
 C010  01 8D 00 D8 8D 01 D8 A9 0D 20 D2 FF 60 00 00 00  |......... ..`...|
 ```
 
+#### Character modes
+
+The dropdown beside **Read** chooses how the right-hand character column is
+interpreted. It changes nothing else: **the address and hex columns are
+identical in every mode**, and switching modes re-reads the bytes you already
+have rather than going back to the device.
+
+| Mode | Reads each byte as | `A` is |
+|---|---|---|
+| **ASCII** | printable host ASCII, `$20-$7E` | `$41` |
+| **PETSCII** | what `PRINT CHR$(X)` draws | `$41` |
+| **Screen codes** | what screen RAM holds, as `PEEK` returns it | `$01` |
+
+That last row is the whole point. The same two bytes mean different things
+depending on which system you are reading:
+
+```
+                                 ASCII / PETSCII      Screen codes
+0400  48 49 08 09 ...            |HI..|              |..HI|
+```
+
+`$48 $49` is `HI` to `PRINT`; `$08 $09` is `HI` sitting in screen RAM. Pick the
+mode that matches what you are looking at — QuickMon will not guess, because it
+cannot: screen RAM is movable, and what any address exposes depends on the
+machine's banking state.
+
+Bytes with no honest rendering — C64 graphic glyphs, reverse-video codes, and
+control codes — show as `.`, the same placeholder the ASCII column has always
+used for unprintable bytes. Reverse video is deliberately *not* shown as its
+un-reversed letter: screen code `$81` is a reversed `A`, and drawing it as a
+plain `A` would misreport the screen. The hex column beside it is always the
+unambiguous reading.
+
+Both C64 tables are for the **uppercase/graphics character set**, which is what
+the machine powers on with. They are transcribed from the *Commodore 64
+Programmer's Reference Guide* — Appendix B for screen codes, Appendix C for
+PETSCII — and are checked against those tables in `src/ui/charmap.rs`.
+
 ## Assembly syntax
 
 | | |
@@ -228,7 +267,7 @@ cursor, but iced 0.14's `text_editor` has no scrollbar support to enable.
 ## Development
 
 ```sh
-cargo test                  # 125 tests
+cargo test                  # 160 tests
 cargo build --all-targets   # warning-free
 ```
 
@@ -238,7 +277,7 @@ or a C64:
 ```
 src/asm/     assembler — pure, no I/O, no GUI
 src/net/     REST client — no GUI, tested against a mock HTTP server
-src/ui/      formatting helpers
+src/ui/      formatting helpers and the character-code tables
 src/app.rs   iced State / Message / update / view
 ```
 

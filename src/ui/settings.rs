@@ -18,6 +18,20 @@ pub enum ConnectionStatus {
 
 pub fn connection_summary(result: &Result<(String, DeviceInfo), NetError>) -> ConnectionStatus {
     match result {
+        // A device that identifies itself is the only thing reported as
+        // connected. The JSON decoding upstream is permissive — absent fields
+        // become empty strings rather than an error — so a host that answers
+        // 200 with `{}`, or with an error in a shape we do not recognise,
+        // otherwise arrives here looking like a success and renders as a bold
+        // green "Connected — , firmware  (API )". That blank line is the tell,
+        // and it is the wrong colour: nothing has confirmed a C64 Ultimate is
+        // on the other end. Treat an unidentified device as a failure.
+        Ok((_, info))
+            if info.product.trim().is_empty() || info.firmware_version.trim().is_empty() =>
+        {
+            ConnectionStatus::Failed("Device did not identify itself — check the address".into())
+        }
+
         Ok((version, info)) => ConnectionStatus::Connected(format!(
             "Connected — {}, firmware {} (API {})",
             info.product, info.firmware_version, version
@@ -66,6 +80,38 @@ mod tests {
                 "Connected — Commodore 64 Ultimate, firmware 3.12 (API 1.0)".into()
             )
         );
+    }
+
+    /// A host that answers with a well-formed but empty body decodes into a
+    /// `DeviceInfo` of empty strings. Showing that as a green "Connected" is
+    /// the one way this screen can tell the user something false.
+    #[test]
+    fn a_device_that_does_not_identify_itself_is_not_reported_as_connected() {
+        let blanks = [
+            ("", "3.12"),
+            ("Commodore 64 Ultimate", ""),
+            ("", ""),
+            ("   ", "3.12"),
+        ];
+        for (product, firmware) in blanks {
+            let r = Ok((
+                "1.0".to_string(),
+                DeviceInfo {
+                    product: product.into(),
+                    firmware_version: firmware.into(),
+                    hostname: String::new(),
+                },
+            ));
+            match connection_summary(&r) {
+                ConnectionStatus::Failed(s) => assert!(
+                    s.contains("did not identify itself"),
+                    "product {product:?} firmware {firmware:?} gave: {s}"
+                ),
+                other => {
+                    panic!("product {product:?} firmware {firmware:?} reported success: {other:?}")
+                }
+            }
+        }
     }
 
     #[test]
