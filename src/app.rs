@@ -180,11 +180,6 @@ impl State {
         !self.source.text().trim().is_empty() || self.assembly.is_some() || !self.errors.is_empty()
     }
 
-    /// Validates the host and builds an `UltimateClient` for it. All three
-    /// device-facing message arms (`Send`, `TestConnection`, `MemRead`) go
-    /// through this, so a blank host produces one clear message instead of
-    /// each arm independently building `http://` + "" and surfacing a
-    /// confusing `NetError::Transport` URL-parse error from reqwest.
     /// Rebuild the dump from `mem_data` under the current character mode.
     fn render_mem_rows(&mut self) {
         self.mem_rows = match &self.mem_data {
@@ -193,6 +188,11 @@ impl State {
         };
     }
 
+    /// Validates the host and builds an `UltimateClient` for it. All three
+    /// device-facing message arms (`Send`, `TestConnection`, `MemRead`) go
+    /// through this, so a blank host produces one clear message instead of
+    /// each arm independently building `http://` + "" and surfacing a
+    /// confusing `NetError::Transport` URL-parse error from reqwest.
     fn client(&self) -> Result<UltimateClient, String> {
         if self.host.trim().is_empty() {
             return Err("No host configured — open settings".into());

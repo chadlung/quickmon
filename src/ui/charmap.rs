@@ -83,8 +83,21 @@ fn ascii(byte: u8) -> char {
 /// PETSCII in the uppercase/graphics set (PRG Appendix C).
 ///
 /// `$20..=$5A` — space through `Z` — is identical to ASCII, so those bytes
-/// pass through. The five codes above it are Commodore's, not ASCII's. `$A0`
-/// is the shifted space, which draws as a blank.
+/// pass through. The five codes above it are Commodore's, not ASCII's.
+///
+/// The top of the range is not its own table. Appendix C ends with three
+/// aliasing rules:
+///
+/// ```text
+/// CODES 192-223 SAME AS  96-127
+/// CODES 224-254 SAME AS 160-190
+/// CODE 255 SAME AS 126
+/// ```
+///
+/// Every aliased code resolves to a graphic — and so to the placeholder —
+/// except one: `$E0` falls in `$E0-$FE` and therefore aliases `$A0`, the
+/// shifted space, which draws as a blank. Both spellings of that blank are
+/// matched below.
 ///
 /// Everything else is a control code (`$00-$1F`, `$80-$9F`) or a graphic
 /// (`$60-$7F`, `$A1-$FF`), and gets the placeholder.
@@ -96,7 +109,8 @@ fn petscii(byte: u8) -> char {
         0x5D => ']',
         0x5E => '↑',
         0x5F => '←',
-        0xA0 => ' ',
+        // Shifted space, and the alias of it at $E0.
+        0xA0 | 0xE0 => ' ',
         _ => PLACEHOLDER,
     }
 }
@@ -231,6 +245,49 @@ mod tests {
         assert_eq!(Petscii.glyph(0xA0), ' ');
         assert_eq!(ScreenCodes.glyph(0x60), ' ');
         assert_eq!(Ascii.glyph(0xA0), PLACEHOLDER);
+    }
+
+    /// PETSCII's top range is aliased onto the middle of the table, per the
+    /// three rules Appendix C ends with:
+    ///
+    /// ```text
+    /// CODES 192-223 SAME AS  96-127
+    /// CODES 224-254 SAME AS 160-190
+    /// CODE 255 SAME AS 126
+    /// ```
+    ///
+    /// `$E0` is the only aliased code that resolves to something other than a
+    /// graphic — it lands on `$A0`, the shifted space.
+    #[test]
+    fn petscii_e0_aliases_the_shifted_space_at_a0() {
+        assert_eq!(Petscii.glyph(0xA0), ' ');
+        assert_eq!(
+            Petscii.glyph(0xE0),
+            ' ',
+            "$E0 aliases $A0, the shifted space"
+        );
+
+        // The alias is PETSCII's alone. $E0 is a reversed graphic in screen
+        // codes and unprintable in ASCII.
+        assert_eq!(ScreenCodes.glyph(0xE0), PLACEHOLDER);
+        assert_eq!(Ascii.glyph(0xE0), PLACEHOLDER);
+    }
+
+    /// The neighbours of `$E0` are graphics, so the alias must not leak into
+    /// them — and the rest of the aliased ranges stay placeholders because
+    /// every code they resolve to is itself a graphic.
+    #[test]
+    fn the_other_aliased_petscii_codes_all_resolve_to_graphics() {
+        // $E1-$FE alias $A1-$BE, all graphics.
+        for byte in [0xE1u8, 0xEF, 0xFE] {
+            assert_eq!(Petscii.glyph(byte), PLACEHOLDER, "${byte:02X}");
+        }
+        // $C0-$DF alias $60-$7F, all graphics.
+        for byte in [0xC0u8, 0xD0, 0xDF] {
+            assert_eq!(Petscii.glyph(byte), PLACEHOLDER, "${byte:02X}");
+        }
+        // $FF aliases $7E, a graphic.
+        assert_eq!(Petscii.glyph(0xFF), PLACEHOLDER);
     }
 
     /// Reverse video is the upper half of the screen-code range. The dump
