@@ -194,8 +194,12 @@ pub fn send_summary(result: &Result<VerifyReport, NetError>) -> String {
                 "{} bytes written to ${:04X} ({}) — verified",
                 r.written, r.address, r.address
             ),
+            // Neutral wording on purpose. A difference is not proof of user
+            // error or of an unsafe address: the byte at an I/O register or a
+            // banked-out region legitimately reads back differently from what
+            // was written. Report what happened and let the user judge.
             Some(m) => format!(
-                "Verify FAILED at ${:04X}: sent {:02X}, read back {:02X}",
+                "Read-back mismatch at ${:04X}: sent {:02X}, read back {:02X}",
                 r.address as usize + m.offset,
                 m.expected,
                 m.actual
@@ -316,16 +320,14 @@ pub fn update(state: &mut State, message: Message) -> Task<Message> {
                     return Task::none();
                 }
             };
-            // Only the *start* of the range is checked here — sound because
-            // `assemble()` (src/asm/encode.rs) already rejects any program
-            // where `org + len > 0x10000`, so a program that starts at or
-            // above $0002 is guaranteed not to wrap back around and touch
-            // $0000/$0001. See `send_guard_rejects_writes_that_touch_the_6510_io_port`.
-            if (a.org as usize) < 2 {
-                state.status =
-                    "$0000/$0001 are the 6510's on-chip port and cannot be written by DMA".into();
-                return Task::none();
-            }
+            // No address is refused here, deliberately. QuickMon is an
+            // experimentation tool: the Ultimate documentation says DMA cannot
+            // write the 6510's on-chip port at $0000/$0001, but the user is
+            // entitled to issue the request and see what the device actually
+            // does. The read-back comparison reports the outcome either way,
+            // which is more informative than a local refusal. Structural
+            // protocol limits — not wrapping past $FFFF — still apply, and
+            // live in the client.
 
             let org = a.org;
             let bytes = a.bytes.clone();
@@ -758,7 +760,7 @@ mod tests {
         });
         assert_eq!(
             send_summary(&r),
-            "Verify FAILED at $C003: sent D2, read back 00"
+            "Read-back mismatch at $C003: sent D2, read back 00"
         );
     }
 
@@ -935,21 +937,26 @@ mod tests {
         assert!(state.errors.is_empty());
     }
 
-    // --- BLOCKING 2: the $0000/$0001 hardware guard, and the other Send guards ---
+    // --- Send guards ---
 
     #[test]
-    fn send_guard_rejects_writes_that_touch_the_6510_io_port() {
-        // Sound only because `assemble()` (src/asm/encode.rs) already rejects
-        // any program where `org + len > 0x10000`; see the comment at the
-        // guard in `update()`.
+    fn send_allows_an_assembly_at_the_6510_io_port() {
+        // QuickMon does not refuse addresses. The Ultimate documentation says
+        // DMA cannot write $0000/$0001, but an experimenter is entitled to
+        // issue the request and observe what the device reports — the
+        // read-back comparison says what actually happened, which beats a
+        // local refusal that only guesses.
         let mut state = State::default();
         state.host = "1.2.3.4".into();
         state.assembly = Some(assemble("RTS", 0x0001).unwrap());
-        let _ = update(&mut state, Message::Send);
-        assert!(!state.sending);
+
+        let task = update(&mut state, Message::Send);
+
+        assert_eq!(task.units(), 1, "a $0001 write must reach the device");
+        assert!(state.sending, "the send must be in flight");
         assert!(
-            state.status.text.contains("6510"),
-            "status was: {}",
+            !state.status.text.contains("6510"),
+            "no address policy should appear in the status: {}",
             state.status.text
         );
     }

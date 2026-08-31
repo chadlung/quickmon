@@ -44,7 +44,7 @@ Click **Send**.
 
 **Expected result:** Status bar shows `29 bytes written to $C000 — verified`
 
-If you see `verify FAILED at $XXXX: sent XX, read back XX`, the program reached the device but the verification read-back disagreed at that offset. This indicates a network or device issue, not an assembler problem. If you see a different byte count or a network error, check your connection settings.
+If you see `Read-back mismatch at $XXXX: sent XX, read back XX`, the program reached the device but the byte read back differed at that offset. At ordinary RAM that points at a network or device problem rather than the assembler. At an I/O register, or an address whose contents depend on the active bank configuration, a difference can be entirely correct hardware behaviour — the message is deliberately neutral about which. If you see a different byte count or a network error, check your connection settings.
 
 ## Step 5: Verify the bytes in device memory
 
@@ -64,6 +64,24 @@ If the screen does not clear or `HI` does not appear:
 - If you see nothing at all or a syntax error, check that you typed `SYS 49152` correctly (not a different number).
 - If the screen clears but `HI` does not appear, check that color RAM was written correctly; the program sets both $D800 and $D801 to $01 (white). If the characters are invisible, the color is wrong, which means the bytes were not written as expected—go back to Step 5 and verify.
 - If `HI` appears in a color other than white, the assembler, network, or device likely failed to set color RAM. Check Step 5 again.
+
+## Step 6a: Permissive addressing (no local refusal)
+
+Assemble a one-byte routine at origin `0001` and press **Send**. QuickMon must
+attempt the write and report whatever the device says — an API result or a
+read-back mismatch — rather than refusing locally.
+
+**Expected result:** a status line reporting the device's actual outcome. Any
+message that refuses the address before contacting the device is a regression.
+
+Record the device product, firmware, and the active cartridge/bank
+configuration alongside the result: the Ultimate's DMA uses the C64's currently
+selected memory map, so the same address can behave differently between runs.
+
+Optional, same principle: write and read an I/O-visible address such as a
+VIC-II register, and read Color RAM (`$D800`+). A difference must appear as a
+neutral `Read-back mismatch`, and Color RAM's upper nibble must be shown raw
+rather than masked.
 
 ## Step 7: Regression check on the sizing loop
 
@@ -103,7 +121,7 @@ If both origins produce different-sized instructions as shown above, the sizing 
 | Symptom | Layer |
 |---------|-------|
 | Assembler error or wrong byte count | Assembler |
-| `verify FAILED at $XXXX: sent .., read back ..` | Network or device |
+| `Read-back mismatch at $XXXX: sent .., read back ..` | Network or device at ordinary RAM; may be correct at I/O or banked addresses |
 | Bytes in device memory do not match Step 5 | Network or device |
 | Program runs but `HI` does not appear | C64 or assembler (color RAM) |
 | Wrong opcode in sizing loop | Assembler |
