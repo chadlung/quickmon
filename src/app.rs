@@ -1,10 +1,13 @@
 use iced::alignment::Vertical;
-use iced::widget::{button, column, container, row, scrollable, text, text_editor, text_input};
+use iced::widget::{
+    button, column, container, pick_list, row, scrollable, text, text_editor, text_input,
+};
 use iced::{Element, Length, Task};
 
 use crate::asm::{AsmError, Assembly, assemble};
 use crate::config::Config;
 use crate::net::{NetError, UltimateClient, VerifyReport};
+use crate::ui::charmap::CharacterMode;
 use crate::ui::hex::{format_bytes, parse_addr};
 use crate::ui::settings::ConnectionStatus;
 
@@ -24,6 +27,10 @@ pub struct State {
     pub connection: Option<crate::ui::settings::ConnectionStatus>,
     pub mem_addr_text: String,
     pub mem_len_text: String,
+    /// The bytes behind `mem_rows`, kept so the dump can be re-rendered when
+    /// the character mode changes without going back to the device.
+    pub mem_data: Option<(u16, Vec<u8>)>,
+    pub mem_mode: CharacterMode,
     pub mem_rows: Vec<String>,
 }
 
@@ -41,6 +48,7 @@ pub enum Message {
     ConnectionTested(Result<(String, crate::net::DeviceInfo), NetError>),
     MemAddrChanged(String),
     MemLenChanged(String),
+    MemModeChanged(CharacterMode),
     MemRead,
     MemLoaded(Result<(u16, Vec<u8>), NetError>),
     OpenFile,
@@ -69,6 +77,8 @@ impl Default for State {
             connection: None,
             mem_addr_text: "0400".into(),
             mem_len_text: "256".into(),
+            mem_data: None,
+            mem_mode: CharacterMode::default(),
             mem_rows: Vec::new(),
         }
     }
@@ -175,6 +185,14 @@ impl State {
     /// through this, so a blank host produces one clear message instead of
     /// each arm independently building `http://` + "" and surfacing a
     /// confusing `NetError::Transport` URL-parse error from reqwest.
+    /// Rebuild the dump from `mem_data` under the current character mode.
+    fn render_mem_rows(&mut self) {
+        self.mem_rows = match &self.mem_data {
+            Some((addr, bytes)) => crate::ui::hex::hex_dump(*addr, bytes, self.mem_mode),
+            None => Vec::new(),
+        };
+    }
+
     fn client(&self) -> Result<UltimateClient, String> {
         if self.host.trim().is_empty() {
             return Err("No host configured — open settings".into());
@@ -403,6 +421,13 @@ pub fn update(state: &mut State, message: Message) -> Task<Message> {
             state.mem_len_text = t;
             Task::none()
         }
+        Message::MemModeChanged(mode) => {
+            // Re-interprets the bytes already in hand. It does not re-read the
+            // device: the mode changes how the dump is read, not what was read.
+            state.mem_mode = mode;
+            state.render_mem_rows();
+            Task::none()
+        }
         Message::MemRead => {
             let Some(addr) = parse_addr(&state.mem_addr_text) else {
                 state.status = format!("'{}' is not a valid address", state.mem_addr_text).into();
@@ -426,11 +451,13 @@ pub fn update(state: &mut State, message: Message) -> Task<Message> {
         }
         Message::MemLoaded(Ok((addr, bytes))) => {
             let len = bytes.len();
-            state.mem_rows = crate::ui::hex::hex_dump(addr, &bytes);
             state.status = format!("Read {len} bytes from ${addr:04X}").into();
+            state.mem_data = Some((addr, bytes));
+            state.render_mem_rows();
             Task::none()
         }
         Message::MemLoaded(Err(e)) => {
+            state.mem_data = None;
             state.mem_rows.clear();
             state.status = e.to_string().into();
             Task::none()
@@ -680,6 +707,11 @@ pub fn view(state: &State) -> Element<'_, Message> {
                 .on_input(Message::MemLenChanged)
                 .width(Length::Fixed(90.0)),
             button("Read").on_press(Message::MemRead),
+            pick_list(
+                CharacterMode::ALL,
+                Some(state.mem_mode),
+                Message::MemModeChanged,
+            ),
         ]
         .spacing(8)
         .align_y(Vertical::Center),
@@ -733,6 +765,69 @@ mod tests {
     use super::*;
     use crate::asm::assemble;
     use crate::net::{Mismatch, NetError, VerifyReport};
+
+    /// The mode selector re-reads the bytes already in hand. It must not need
+    /// the device — the run below never builds a client, and would fail if it
+    /// tried, because no host is set.
+    #[test]
+    fn changing_the_character_mode_re_renders_the_dump_without_a_device() {
+        let mut state = State::default();
+        assert!(state.host.is_empty(), "test assumes no configured host");
+
+        // "HI" as screen codes ($08 $09), the form you would find by reading
+        // screen RAM at $0400 after POKEing it there.
+        let _ = update(
+            &mut state,
+            Message::MemLoaded(Ok((0x0400, vec![0x08, 0x09]))),
+        );
+
+        let ascii = state.mem_rows.join("\n");
+        assert!(ascii.contains("08 09"), "row was: {ascii}");
+        assert!(ascii.ends_with("|..|"), "row was: {ascii}");
+
+        let _ = update(
+            &mut state,
+            Message::MemModeChanged(CharacterMode::ScreenCodes),
+        );
+
+        let screen = state.mem_rows.join("\n");
+        assert!(screen.ends_with("|HI|"), "row was: {screen}");
+        assert!(screen.contains("08 09"), "hex column changed: {screen}");
+
+        // Switching the mode is not a read, so it must not claim to be one.
+        assert_eq!(
+            state.status.text, "Read 2 bytes from $0400",
+            "the mode change overwrote the read's status line"
+        );
+    }
+
+    /// A failed read must clear the bytes too, or a later mode switch would
+    /// silently resurrect the previous dump under a new interpretation.
+    #[test]
+    fn a_failed_read_leaves_no_bytes_for_a_later_mode_switch_to_redraw() {
+        let mut state = State::default();
+        let _ = update(
+            &mut state,
+            Message::MemLoaded(Ok((0x0400, vec![0x08, 0x09]))),
+        );
+        assert!(!state.mem_rows.is_empty());
+
+        let _ = update(
+            &mut state,
+            Message::MemLoaded(Err(NetError::Transport("boom".into()))),
+        );
+        assert!(state.mem_rows.is_empty());
+
+        let _ = update(
+            &mut state,
+            Message::MemModeChanged(CharacterMode::ScreenCodes),
+        );
+        assert!(
+            state.mem_rows.is_empty(),
+            "stale bytes came back: {:?}",
+            state.mem_rows
+        );
+    }
 
     #[test]
     fn summary_reports_a_verified_write() {
