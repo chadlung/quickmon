@@ -1,0 +1,145 @@
+name: Release
+
+# Tagging `v*` builds every platform and publishes a GitHub Release.
+#
+# `workflow_dispatch` runs the same build matrix and uploads the archives as
+# workflow artifacts without publishing anything, so the workflow itself can be
+# exercised without burning a version number on a broken run.
+#
+# Note on `env:` in the shell steps below: values are passed in as environment
+# variables rather than interpolated with `${{ }}` directly into `run:`.
+# GitHub expands `${{ }}` textually before the shell sees it, so a ref name
+# containing a backtick, `$`, `;` or `&` — all legal in a git ref — would be
+# executed as code by a job holding `contents: write`. Referencing `$REF_NAME`
+# instead passes the value, never the syntax.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      # One platform failing should not hide the others' results.
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-x86_64
+            os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+          - name: macos-arm64
+            os: macos-latest
+            target: aarch64-apple-darwin
+          - name: macos-x86_64
+            os: macos-latest
+            target: x86_64-apple-darwin
+          - name: windows-x86_64
+            os: windows-latest
+            target: x86_64-pc-windows-msvc
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      # winit needs these to build. GTK is deliberately absent: rfd resolves to
+      # the ashpd (xdg-desktop-portal) backend in this dependency tree, not the
+      # GTK one, so libgtk-3-dev is not required.
+      - name: Install Linux system libraries
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y \
+            libxkbcommon-dev \
+            libwayland-dev
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+
+      # Run the suite natively rather than under `--target`: the macOS runners
+      # are arm64, so testing the x86_64 target would need Rosetta to execute
+      # the test binary. The source is identical either way, and every runner
+      # in the matrix exercises it on its own architecture.
+      - name: Test
+        run: cargo test --locked
+
+      - name: Build
+        env:
+          TARGET: ${{ matrix.target }}
+        run: cargo build --release --locked --target "$TARGET"
+
+      - name: Package
+        if: runner.os != 'Windows'
+        shell: bash
+        env:
+          REF_NAME: ${{ github.ref_name }}
+          MATRIX_NAME: ${{ matrix.name }}
+          TARGET: ${{ matrix.target }}
+        run: |
+          set -euo pipefail
+          staging="quickmon-${REF_NAME}-${MATRIX_NAME}"
+          mkdir "$staging"
+          cp "target/${TARGET}/release/quickmon" "$staging/"
+          cp README.md "$staging/"
+          tar czf "${staging}.tar.gz" "$staging"
+          echo "ASSET=${staging}.tar.gz" >> "$GITHUB_ENV"
+
+      - name: Package
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          REF_NAME: ${{ github.ref_name }}
+          MATRIX_NAME: ${{ matrix.name }}
+          TARGET: ${{ matrix.target }}
+        run: |
+          $staging = "quickmon-$env:REF_NAME-$env:MATRIX_NAME"
+          New-Item -ItemType Directory -Path $staging | Out-Null
+          Copy-Item "target/$env:TARGET/release/quickmon.exe" $staging
+          Copy-Item README.md $staging
+          Compress-Archive -Path $staging -DestinationPath "$staging.zip"
+          "ASSET=$staging.zip" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.name }}
+          path: ${{ env.ASSET }}
+          if-no-files-found: error
+
+  release:
+    name: Publish release
+    needs: build
+    # Only a tag publishes. A manual run stops after the build matrix, leaving
+    # the archives as downloadable workflow artifacts.
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REF_NAME: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          ls -la dist
+          gh release create "$REF_NAME" \
+            --repo "$REPO" \
+            --title "QuickMon $REF_NAME" \
+            --generate-notes \
+            dist/*
