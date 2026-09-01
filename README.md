@@ -7,7 +7,7 @@ QuickMon does not try to run your code. Its job ends when the bytes are
 confirmed present at the address you asked for — you start them yourself with
 `SYS` from BASIC, or from the machine's own monitor.
 
-![QuickMon](docs/screenshot.png)
+![QuickMon](docs/screenshot-main.png)
 
 ## What it does
 
