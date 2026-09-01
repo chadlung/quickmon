@@ -20,6 +20,13 @@ on:
 permissions:
   contents: write
 
+# The three actions/* steps sit on different majors on purpose. GitHub retired
+# the Node 20 runtime, and each action reached Node 24 at a different version:
+# checkout at v5, upload-artifact at v6, download-artifact at v7. v5 of both
+# artifact actions still declares node20, so levelling all three to v5 would
+# leave the deprecation in place for two of them. Each is pinned to the lowest
+# major that runs on Node 24; do not "tidy" them to a common number.
+
 env:
   CARGO_TERM_COLOR: always
 
@@ -46,7 +53,7 @@ jobs:
             target: x86_64-pc-windows-msvc
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -115,7 +122,7 @@ jobs:
           Compress-Archive -Path $staging -DestinationPath "$staging.zip"
           "ASSET=$staging.zip" | Out-File -FilePath $env:GITHUB_ENV -Append
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: ${{ matrix.name }}
           path: ${{ env.ASSET }}
@@ -129,7 +136,7 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v7
         with:
           path: dist
           merge-multiple: true
