@@ -176,6 +176,26 @@ the machine powers on with. They are transcribed from the *Commodore 64
 Programmer's Reference Guide* — Appendix B for screen codes, Appendix C for
 PETSCII — and are checked against those tables in `src/ui/charmap.rs`.
 
+## Demos
+
+`demos/` holds small, self-contained 6510 programs to open, assemble, and send.
+None of them set an origin or use constants, so the **Target: $** field alone
+decides where they land — assemble at `C000` and start them with `SYS 49152`.
+Every one exits on a keypress and leaves the machine on a normal blue screen.
+
+| File | What it does |
+|------|--------------|
+| `hello.asm` | Prints HELLO centred on the screen and recolours each letter at random. |
+| `linetext.asm` | Draws a white line across the middle of the screen in text mode. |
+| `line.asm` | The same line in hi-res bitmap mode, bitmap at `$2000`. |
+| `sprite.asm` | A two-frame animated sprite bouncing left and right. |
+| `togglecolor.asm` | RETURN steps the background through the 16 colours; any other key quits. |
+| `dots.asm` | Sprinkles random coloured `.` characters across the screen. |
+
+Several of them use SID voice 3 as a random number generator: with the noise
+waveform running at a high frequency, `$d41b` returns a fresh pseudo-random byte
+on every read, and `$d418` bit 7 keeps that voice out of the audio output.
+
 ## Assembly syntax
 
 | | |
