@@ -36,6 +36,103 @@ confirmed present at the address you asked for — you start them yourself with
 cargo run --release
 ```
 
+A binary you built yourself is never blocked by any of the following. If you
+would rather not deal with the operating system's warnings at all, this is the
+short way past them.
+
+## Running a downloaded release
+
+Release archives are published on the
+[Releases page](https://github.com/chadlung/quickmon/releases): a `.tar.gz` for
+macOS and Linux, a `.zip` for Windows. Pick `macos-arm64` for Apple Silicon
+(M1 and later) or `macos-x86_64` for an Intel Mac.
+
+**These binaries are not code-signed.** Signing them would mean paying for an
+Apple Developer certificate and a Windows code-signing certificate, so both
+operating systems treat QuickMon as software from an unidentified developer and
+will refuse to run it until you say otherwise. That refusal is about the absence
+of a certificate, not about anything found in the program. Everything below is
+how to grant that permission — or, if you would rather not, build from source
+instead.
+
+### macOS
+
+The archive holds a plain `quickmon` executable rather than a `.app` bundle, so
+Terminal is the least fussy route:
+
+```sh
+tar -xzf quickmon-v1.0.0-macos-arm64.tar.gz
+cd quickmon-v1.0.0-macos-arm64
+xattr -d com.apple.quarantine quickmon 2>/dev/null
+./quickmon
+```
+
+Your browser tags anything it downloads with a `com.apple.quarantine`
+attribute, and Gatekeeper reads that tag to decide whether to intervene. The
+tag lands on the `.tar.gz`, and **both** ways of unpacking it carry the tag
+across to the files inside — `tar` on macOS restores extended attributes, and
+Finder's Archive Utility propagates them too. So the `xattr -d` line is not
+optional tidying; without it the extracted binary is still quarantined. Run it
+after unpacking and before the first launch. If the tag has already been
+cleared the command prints `No such xattr` and changes nothing, which is what
+the `2>/dev/null` is absorbing.
+
+If you launch it from Finder instead, macOS refuses with a message to the
+effect of **"Apple could not verify 'quickmon' is free of malware"** (the exact
+wording moves between releases):
+
+- **macOS 15 (Sequoia) and newer** — open **System Settings → Privacy &
+  Security**, scroll down to the Security section, and click **Open Anyway**
+  beside the blocked item. Then launch it again. The old Control-click
+  shortcut no longer works here; Apple removed that bypass for un-notarized
+  software in Sequoia.
+- **macOS 14 (Sonoma) and older** — Control-click (or right-click) the
+  binary, choose **Open**, then **Open** again in the dialog that follows.
+  Doing it this way once is remembered.
+
+### Windows
+
+Windows has three separate mechanisms here, and they are worth telling apart
+because only two of them can be waved through.
+
+**1. Mark of the Web — unblock the `.zip` before extracting.** Right-click the
+downloaded archive, choose **Properties**, tick **Unblock** at the bottom of
+the General tab, and click OK. Do this *first*: extracting a still-blocked
+archive stamps every file inside it, and you will be answering the same prompt
+afterwards. In PowerShell:
+
+```powershell
+Unblock-File -Path .\quickmon-v1.0.0-windows-x86_64.zip
+```
+
+**2. Microsoft Defender SmartScreen — "Windows protected your PC".** A blue
+dialog with a single **Don't run** button. The way through is the quiet link:
+click **More info**, which reveals a **Run anyway** button beneath it.
+
+**3. Smart App Control — this one cannot be waved through.** Smart App Control
+is a separate Windows 11 feature from SmartScreen, and where SmartScreen asks,
+it simply blocks. It refuses unsigned binaries outright and offers no per-app
+override, so there is no "Run anyway" to find.
+
+Check **Windows Security → App & browser control → Smart App Control** to see
+whether it is On, Off, or in Evaluation mode. If it is On, be aware that
+turning it off is a one-way door — Windows will not let you switch it back on
+without reinstalling the operating system. Weakening a system-wide security
+setting for one program is a poor trade, so if Smart App Control is on, the
+better answer is to build QuickMon from source with `cargo run --release`. A
+binary compiled on your own machine is not subject to it.
+
+### Linux
+
+No signature checks to work around. The tarball preserves the executable bit,
+so extract and run it:
+
+```sh
+tar -xzf quickmon-v1.0.0-linux-x86_64.tar.gz
+cd quickmon-v1.0.0-linux-x86_64
+./quickmon
+```
+
 ## Using it
 
 ### 1. Connect
@@ -287,7 +384,7 @@ cursor, but iced 0.14's `text_editor` has no scrollbar support to enable.
 ## Development
 
 ```sh
-cargo test                  # 160 tests
+cargo test                  # 164 tests
 cargo build --all-targets   # warning-free
 ```
 

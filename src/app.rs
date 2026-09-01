@@ -173,11 +173,18 @@ impl State {
         self.assembly.as_ref().is_some_and(|a| !a.bytes.is_empty())
     }
 
-    /// True when there is anything for Clear to act on: text in the editor, a
-    /// previous assembly, or an error list. Keeps the button dark when pressing
-    /// it would be a no-op, matching Send and Connect.
+    /// True when there is anything for Clear to act on: any text in the editor,
+    /// a previous assembly, or an error list. Keeps the button dark when
+    /// pressing it would be a no-op, matching Send and Connect.
+    ///
+    /// Deliberately `is_empty` and not `trim().is_empty()`. Whitespace is text:
+    /// a buffer holding stray spaces, a tab, or a run of blank lines still has
+    /// something for Clear to remove, and the editor still shows a cursor
+    /// sitting past column one. Trimming first made Clear go dark in exactly
+    /// that state, so the one visible way to empty the buffer was unavailable
+    /// while the buffer was demonstrably not empty.
     fn has_anything_to_clear(&self) -> bool {
-        !self.source.text().trim().is_empty() || self.assembly.is_some() || !self.errors.is_empty()
+        !self.source.text().is_empty() || self.assembly.is_some() || !self.errors.is_empty()
     }
 
     /// Rebuild the dump from `mem_data` under the current character mode.
@@ -1199,10 +1206,7 @@ mod tests {
 
         let _ = update(&mut state, Message::Clear);
 
-        assert!(
-            state.source.text().trim().is_empty(),
-            "editor must be empty"
-        );
+        assert!(state.source.text().is_empty(), "editor must be empty");
         assert!(state.assembly.is_none(), "the listing must be cleared");
         assert!(state.errors.is_empty(), "the error pane must be cleared");
         assert_eq!(state.status.text, "Cleared");
@@ -1241,6 +1245,43 @@ mod tests {
         assert!(
             state.has_anything_to_clear(),
             "errors count even with an empty editor"
+        );
+    }
+
+    /// Whitespace is text. A buffer of spaces, a tab, or blank lines is not
+    /// empty — the editor shows a cursor somewhere other than the top-left and
+    /// Clear is the one control that puts it back. Gating the button on
+    /// `trim()` took that away at exactly the moment it was wanted.
+    #[test]
+    fn whitespace_only_source_is_still_something_to_clear() {
+        for buffer in [" ", "    ", "\t", "\n", "\n\n\n", "  \t \n \n"] {
+            let mut state = State::default();
+            state.source = text_editor::Content::with_text(buffer);
+            assert!(
+                state.has_anything_to_clear(),
+                "{buffer:?} left Clear disabled with a non-empty buffer"
+            );
+        }
+    }
+
+    /// The counterpart to the test above: the predicate widened to "any text",
+    /// not to "always on". A fresh session, and a session returned to that
+    /// state by Clear itself, must both leave the button dark.
+    #[test]
+    fn a_truly_empty_editor_still_has_nothing_to_clear() {
+        let mut state = State::default();
+        assert!(
+            !state.has_anything_to_clear(),
+            "a fresh session has nothing to clear"
+        );
+
+        state.source = text_editor::Content::with_text("   \n");
+        assert!(state.has_anything_to_clear());
+
+        let _ = update(&mut state, Message::Clear);
+        assert!(
+            !state.has_anything_to_clear(),
+            "Clear must leave the button dark, not re-arm itself"
         );
     }
 
