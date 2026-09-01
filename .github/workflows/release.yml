@@ -100,7 +100,11 @@ jobs:
           TARGET: ${{ matrix.target }}
         run: |
           set -euo pipefail
-          staging="quickmon-${REF_NAME}-${MATRIX_NAME}"
+          # Slashes out of the ref name: on workflow_dispatch `github.ref_name`
+          # is the branch, and a branch called `fix/foo` would make $staging a
+          # nested path whose parent does not exist, so mkdir fails. Tags carry
+          # no slash, which is why only manual runs ever hit this.
+          staging="quickmon-${REF_NAME//\//-}-${MATRIX_NAME}"
           mkdir "$staging"
           cp "target/${TARGET}/release/quickmon" "$staging/"
           cp README.md "$staging/"
@@ -115,7 +119,11 @@ jobs:
           MATRIX_NAME: ${{ matrix.name }}
           TARGET: ${{ matrix.target }}
         run: |
-          $staging = "quickmon-$env:REF_NAME-$env:MATRIX_NAME"
+          # Same slash sanitising as the bash step above. PowerShell's
+          # New-Item creates missing parents rather than failing, so without
+          # this Windows silently produced a differently-nested archive.
+          $ref = $env:REF_NAME -replace '/', '-'
+          $staging = "quickmon-$ref-$env:MATRIX_NAME"
           New-Item -ItemType Directory -Path $staging | Out-Null
           Copy-Item "target/$env:TARGET/release/quickmon.exe" $staging
           Copy-Item README.md $staging
