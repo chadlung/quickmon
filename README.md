@@ -21,6 +21,11 @@ confirmed present at the address you asked for — you start them yourself with
   RAM, sprite data, or the routine you just sent. The character column reads as
   **ASCII**, **PETSCII**, or **screen codes**, whichever you pick.
 
+There is no file output: QuickMon assembles into memory and sends. If you
+want a `.prg`, or want to drive this from a script, use the command-line
+companion — [termon](https://github.com/chadlung/termon), described
+[below](#termon--the-same-job-from-the-command-line).
+
 ## Requirements
 
 - Rust 1.88 or newer (built and tested on 1.94.1, edition 2024)
@@ -380,6 +385,29 @@ TCP retry schedule.
 
 **The editor has no scrollbar.** It scrolls with the mouse wheel and follows the
 cursor, but iced 0.14's `text_editor` has no scrollbar support to enable.
+
+## termon — the same job from the command line
+
+[**termon**](https://github.com/chadlung/termon) is QuickMon's companion
+project: the same work — assemble 6510, write the machine code into a
+Commodore 64 Ultimate over its REST API — with no window. It is a separate
+program, not a mode of this one, and the two are independent: neither needs the
+other installed.
+
+Reach for termon instead of QuickMon when you want to:
+
+- **Build a `.prg`.** termon writes a standard C64 program file with the load
+  address in the first two bytes, so the result runs from disk or an emulator.
+  QuickMon has no file output at all — it assembles into memory and sends.
+- **Script it.** `termon assemble`, `send`, `read`, and `info` are subcommands
+  with distinct exit codes — `1` usage, `2` assembly failure, `3` network
+  error, `4` verification mismatch — so a shell script or CI job can tell the
+  four apart without parsing text.
+- **Work over SSH,** or anywhere else a GUI is not available.
+
+Stay with QuickMon when you want the editor, the error list beside the source,
+and the hex dump you can flip between ASCII, PETSCII, and screen codes without
+re-running anything.
 
 ## Development
 
